@@ -43,6 +43,26 @@
 
 ---
 
+## Geplant: Automatische Becher-Kalibrierung (Phase 3)
+
+*Idee vom 13.09.2026 · manuelles Antippen und Radius-Regler bleiben als Rückfall*
+
+- **Ansatz:** Nicht einzelne Kreise suchen, sondern die **bekannte Formation einpassen**. Die Formation kommt aus dem aktiven Drill-Block. Einige Becher im Bild finden, dann Formation verschieben, drehen, skalieren → alle Positionen und der Radius ergeben sich.
+- **Becherdurchmesser einstellbar** (Standard ca. 9,5 cm), weil Trainings- und Turnierbecher sich unterscheiden können.
+- **Nutzen über Komfort hinaus:** feste Bechernummern je Position (Spitze, „links hinten“ …) — Voraussetzung für die Heatmap. Später Erkennen von Umstellungen im Spiel.
+- **Schwierigkeiten:** durchsichtige Becher haben wenig Kontrast (rote Becher deutlich einfacher) · Verzerrung bei Zoom 0,5 · Schatten und verschmelzende Becher (Formation einpassen fängt das ab).
+- **Bedienung:** Knopf „Automatisch kalibrieren“ → Vorschlag → bestätigen oder korrigieren.
+
+## Geplant: Kamera-Fernbedienung vom Laptop (Phase 2b)
+
+*Wunsch vom 13.09.2026*
+
+- Das iPhone schickt alle 1–2 s ein kleines Vorschaubild und seine aktuellen Einstellungen an den Server.
+- Das Dashboard zeigt das Bild mit Becher-Overlay; dort lassen sich Becher antippen, Radius, Schwellen, Farben, Referenz und Modus ändern.
+- Das iPhone holt die Änderungen alle 1–2 s ab und übernimmt sie. Einschränkung: Kamera starten und die erste Sprachausgabe brauchen weiterhin einen Tap am iPhone (Safari-Regel).
+
+---
+
 ## Option: Seitenkamera am Laptop (Phase 4)
 
 *Idee vom 13.09.2026 · ersetzt die experimentelle Ball-Wurferkennung · Voraussetzung: Phase 2 steht*
@@ -147,7 +167,8 @@ Programmiert werden müssen nur **fünf Drill-Typen**:
 | **0 — Setup** | 14.–15.09. | Next.js-Projekt, Neon-DB + Drizzle-Schema, Vercel-Deploy · Drill-Katalog + 5-Wochen-Plan als Daten | Leere App läuft online mit HTTPS |
 | **1 — Kamera-Test** | 15.–20.09. | Kamera-Seite fürs iPhone: Kamera-Fähigkeiten anzeigen, Becher antippen, Referenzbild, Ball-im-Becher-Erkennung mit Live-Overlay und Sprachausgabe | Küchentisch-Test bestanden → **Entscheidung Safari reicht / Ausweichweg** |
 | **2 — Verbinden** | 21.–27.09. | Events → Datenbank · Live-Dashboard auf dem zweiten Gerät · Drill-Typen A und C · Korrektur-Knopf + Standbilder · Aufsetzer-Seite | Kamera im echten Training ab W2 |
-| **3 — Partner & Analyse** | 28.09.–04.10. | Zwei Ballfarben, Drill-Typ B · Heatmap · Rollen-Seite · Same-Cup vs. p² | Rollenentscheidung nach Zahlen |
+| **2b — Kamera-Fernbedienung** | bis 27.09. | Kamera-Einstellungen vom Laptop aus: Vorschaubild vom iPhone, Becher antippen, Radius, Schwellen, Referenz, Modus — das iPhone bleibt am Stativ | Kein Hochklettern zum Handy |
+| **3 — Partner & Analyse** | 28.09.–04.10. | **Automatische Becher-Kalibrierung** (siehe unten) · Zwei Ballfarben, Drill-Typ B · Heatmap · Rollen-Seite · Same-Cup vs. p² | Rollenentscheidung nach Zahlen |
 | **4 — Extras (optional)** | bis 04.10. | **Seitenkamera am Laptop** (siehe Option unten) · Instant Replay · Druck-Soundboard · Session-Zusammenfassung per Telegram · Wochen-Kommentar per Claude API | Spaß |
 | **Freeze** | ab 05.10. | Keine neuen Features, nur noch benutzen und Bugs fixen | Peak- und Taper-Phase ungestört |
 

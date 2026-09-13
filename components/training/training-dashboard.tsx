@@ -19,6 +19,7 @@ import { type PlanSession, nextWeekAfter, weekForDate, weeks } from "@/lib/plan"
 import { formatPercent, longestStreak } from "@/lib/stats";
 
 const POLL_MS = 1500;
+const FETCH_TIMEOUT_MS = 8000;
 const CAMERA_TIMEOUT_MS = 25_000;
 const timeFormat = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const clockFormat = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
@@ -76,13 +77,18 @@ export function TrainingDashboard() {
   const [lastPlayerId, setLastPlayerId] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
+    // Ohne Timeout bliebe das Dashboard bei einer hängenden Anfrage für immer auf „Lade …“.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch("/api/live", { cache: "no-store" });
+      const response = await fetch("/api/live", { cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setState((await response.json()) as LiveState);
       setConnectionError(false);
     } catch {
       setConnectionError(true);
+    } finally {
+      clearTimeout(timeout);
     }
   }, []);
 

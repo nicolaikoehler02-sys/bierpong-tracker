@@ -252,8 +252,13 @@ export function CameraTest() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), ACTIVE_POLL_MS * 4);
       try {
-        const response = await fetch(`/api/active?camera=${activeRef.current ? 1 : 0}`, { cache: "no-store" });
+        const response = await fetch(`/api/active?camera=${activeRef.current ? 1 : 0}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = (await response.json()) as { block: ActiveBlockInfo | null };
         if (!cancelled) {
@@ -262,6 +267,8 @@ export function CameraTest() {
         }
       } catch {
         if (!cancelled) setLinkStatus("offline");
+      } finally {
+        clearTimeout(timeout);
       }
       if (!cancelled) timer = setTimeout(poll, ACTIVE_POLL_MS);
     };
