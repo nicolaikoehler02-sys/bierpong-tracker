@@ -52,7 +52,7 @@ const defaultSettings: StoredSettings = {
   cups: [],
   radius: 0.045,
   zoom: 1,
-  threshold: 0.12,
+  threshold: 0.1,
   framesOn: 5,
   handThreshold: 0.25,
   color: defaultColorParams,
@@ -590,7 +590,7 @@ export function CameraTest() {
               Leer-Referenz aufnehmen
             </Button>
             {referenceMessage && <p className="text-xs text-muted-foreground">{referenceMessage}</p>}
-            <RangeInput label="Schwelle" value={threshold} min={0.01} max={0.4} step={0.01} format={percent} onChange={setThreshold} />
+            <RangeInput label="Schwelle (Ballfleck)" value={threshold} min={0.01} max={0.4} step={0.01} format={percent} onChange={setThreshold} />
             <RangeInput label="Stabile Frames" value={framesOn} min={2} max={15} step={1} onChange={setFramesOn} />
             <RangeInput
               label="Hand-Sperre ab Randänderung"

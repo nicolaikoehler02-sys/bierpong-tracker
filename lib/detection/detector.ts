@@ -1,5 +1,5 @@
 import type { BallColor } from "@/db/schema";
-import { type ColorParams, PIXEL_ORANGE, PIXEL_WHITE, classifyPixel } from "./color";
+import { type ColorParams, PIXEL_NONE, PIXEL_ORANGE, PIXEL_WHITE, classifyPixel } from "./color";
 
 /** Bechermitte, normiert auf 0–1 der Bildbreite/-höhe. */
 export interface Cup {
@@ -8,7 +8,7 @@ export interface Cup {
 }
 
 export interface DetectionParams {
-  /** Anteil Ballpixel im Becherbereich, ab dem ein Ball zählt */
+  /** Größe des größten Ballflecks relativ zur Becherfläche, ab der ein Ball zählt */
   threshold: number;
   /** So viele Analyse-Frames muss der Ball stabil erkannt sein */
   framesOn: number;
@@ -43,8 +43,11 @@ export interface AnalysisResult {
   hits: HitEvent[];
 }
 
-/** Nur der innere Teil des Bechers wird auf Bälle ausgewertet, der Rand stört. */
-const INNER_FACTOR = 0.85;
+/**
+ * Ausgewertet wird die ganze Becheröffnung, damit auch Bälle am Rand vollständig zählen.
+ * Den statischen Becherrand filtert der Vergleich mit der Leer-Referenz.
+ */
+const INNER_FACTOR = 1;
 /** Ring um den Becher: Ein Ball fliegt in einem Frame hindurch, eine Hand bleibt dort liegen. */
 const RING_INNER_FACTOR = 1.1;
 const RING_OUTER_FACTOR = 1.6;
@@ -54,6 +57,7 @@ const COLORS: BallColor[] = ["weiss", "orange"];
 
 const ZONE_INNER = 1;
 const ZONE_RING = 2;
+const LABEL_VISITED = 255;
 
 interface Roi {
   x0: number;
@@ -65,6 +69,10 @@ interface Roi {
   innerPixels: number;
   ringPixels: number;
   reference: Uint8ClampedArray | null;
+  /** Arbeitspuffer: Pixelklasse je Position, wird pro Frame neu gefüllt */
+  labels: Uint8Array;
+  /** Arbeitspuffer für die Fleck-Suche */
+  stack: Int32Array;
 }
 
 interface CupPresence {
@@ -118,7 +126,8 @@ export class CupDetector {
       const y1 = Math.min(height - 1, Math.ceil(cy + outer));
       const roiWidth = Math.max(0, x1 - x0 + 1);
       const roiHeight = Math.max(0, y1 - y0 + 1);
-      const zones = new Uint8Array(roiWidth * roiHeight);
+      const size = roiWidth * roiHeight;
+      const zones = new Uint8Array(size);
       let innerPixels = 0;
       let ringPixels = 0;
       for (let y = 0; y < roiHeight; y++) {
@@ -135,7 +144,18 @@ export class CupDetector {
           }
         }
       }
-      return { x0, y0, width: roiWidth, height: roiHeight, zones, innerPixels, ringPixels, reference: null };
+      return {
+        x0,
+        y0,
+        width: roiWidth,
+        height: roiHeight,
+        zones,
+        innerPixels,
+        ringPixels,
+        reference: null,
+        labels: new Uint8Array(size),
+        stack: new Int32Array(size),
+      };
     });
     this.resetReference();
     return true;
@@ -177,10 +197,9 @@ export class CupDetector {
     const hits: HitEvent[] = [];
 
     const cups = this.rois.map((roi, index): CupState => {
-      let white = 0;
-      let orange = 0;
       let ringChanged = 0;
-      const reference = roi.reference;
+      const { reference, labels } = roi;
+      labels.fill(PIXEL_NONE);
 
       for (let y = 0; y < roi.height; y++) {
         const row = (roi.y0 + y) * frame.width;
@@ -203,19 +222,17 @@ export class CupDetector {
 
           if (zone === ZONE_RING) {
             if (reference && changed) ringChanged++;
-            continue;
+          } else if (changed) {
+            labels[m] = classifyPixel(r, g, b, params.color);
           }
-          if (!changed) continue;
-
-          const cls = classifyPixel(r, g, b, params.color);
-          if (cls === PIXEL_WHITE) white++;
-          else if (cls === PIXEL_ORANGE) orange++;
         }
       }
 
+      // Nur der größte zusammenhängende Fleck zählt: Der Ball ist ein Fleck,
+      // Spiegelungen im Wasser sind verstreute Einzelpixel.
       const levels: Record<BallColor, number> = {
-        weiss: roi.innerPixels ? white / roi.innerPixels : 0,
-        orange: roi.innerPixels ? orange / roi.innerPixels : 0,
+        weiss: roi.innerPixels ? largestBlob(roi, PIXEL_WHITE) / roi.innerPixels : 0,
+        orange: roi.innerPixels ? largestBlob(roi, PIXEL_ORANGE) / roi.innerPixels : 0,
       };
       const edgeChange = reference && roi.ringPixels ? ringChanged / roi.ringPixels : 0;
       const presence = this.presence[index];
@@ -228,30 +245,23 @@ export class CupDetector {
         const state = presence.colors[color];
         // Während eine Hand im Bereich ist, bleibt der Zustand eingefroren:
         // kein neuer Treffer durch Hautfarbe, kein „Ball weg“ durch Verdecken.
-        if (!blocked) {
+        if (blocked) {
+          state.count = 0;
+        } else {
           const level = levels[color];
-          if (!state.on) {
-            if (level >= params.threshold) {
-              state.count++;
-              if (state.count >= params.framesOn) {
-                state.on = true;
-                state.count = 0;
-                if (armed) hits.push({ cup: index, color, confidence: level, at: now });
-              }
-            } else {
-              state.count = 0;
-            }
-          } else if (level < params.threshold * 0.5) {
-            state.count++;
-            if (state.count >= params.framesOff) {
-              state.on = false;
-              state.count = 0;
-            }
-          } else {
+          // Zähler steigt bei passendem Frame und sinkt bei unpassendem nur um eins,
+          // damit ein einzelner schwacher Frame die Erkennung nicht neu startet.
+          const matches = state.on ? level < params.threshold * 0.5 : level >= params.threshold;
+          state.count = matches ? state.count + 1 : Math.max(0, state.count - 1);
+
+          if (!state.on && state.count >= params.framesOn) {
+            state.on = true;
+            state.count = 0;
+            if (armed) hits.push({ cup: index, color, confidence: level, at: now });
+          } else if (state.on && state.count >= params.framesOff) {
+            state.on = false;
             state.count = 0;
           }
-        } else {
-          state.count = 0;
         }
         present ||= state.on;
         pending ||= !state.on && state.count > 0;
@@ -280,6 +290,40 @@ export class CupDetector {
       blockedUntil: 0,
     }));
   }
+}
+
+/** Größe des größten zusammenhängenden Flecks einer Pixelklasse (8er-Nachbarschaft). */
+function largestBlob(roi: Roi, target: number): number {
+  const { labels, stack, width, height } = roi;
+  let best = 0;
+  for (let start = 0; start < labels.length; start++) {
+    if (labels[start] !== target) continue;
+    let size = 0;
+    let top = 0;
+    stack[top++] = start;
+    labels[start] = LABEL_VISITED;
+    while (top > 0) {
+      const current = stack[--top];
+      size++;
+      const x = current % width;
+      const y = (current - x) / width;
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= height) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          if ((dx === 0 && dy === 0) || nx < 0 || nx >= width) continue;
+          const neighbor = ny * width + nx;
+          if (labels[neighbor] === target) {
+            labels[neighbor] = LABEL_VISITED;
+            stack[top++] = neighbor;
+          }
+        }
+      }
+    }
+    if (size > best) best = size;
+  }
+  return best;
 }
 
 function meanLuma(frame: ImageData): number {
