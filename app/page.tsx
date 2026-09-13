@@ -7,8 +7,8 @@ import { berlinToday, daysBetween, formatRange } from "@/lib/dates";
 import { TOURNAMENT_DATE, nextWeekAfter, weekForDate } from "@/lib/plan";
 
 const phases = [
-  { name: "Phase 0 · Setup", status: "läuft", detail: "Drills, Plan, Datenbank, Deploy" },
-  { name: "Phase 1 · Kamera-Test", status: "als Nächstes", detail: "Becher antippen, Ball-im-Becher-Erkennung" },
+  { name: "Phase 0 · Setup", status: "erledigt", detail: "Drills, Plan, Datenbank, Deploy" },
+  { name: "Phase 1 · Kamera-Test", status: "läuft", detail: "Becher antippen, Ball-im-Becher-Erkennung" },
   { name: "Phase 2 · Verbinden", status: "geplant", detail: "Live-Dashboard, Drill-Modi, Korrektur-Knopf" },
   { name: "Phase 3 · Partner & Analyse", status: "geplant", detail: "Ballfarben, Heatmap, Rollen" },
 ];

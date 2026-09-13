@@ -4,6 +4,7 @@ const navLinks = [
   { href: "/", label: "Start" },
   { href: "/plan", label: "Plan" },
   { href: "/drills", label: "Drills" },
+  { href: "/kamera", label: "Kamera" },
 ];
 
 export function PageHeader({ title, subtitle }: { title: string; subtitle?: string }) {
