@@ -38,6 +38,7 @@ export interface EventInfo {
   confidence: number | null;
   voidedAt: string | null;
   createdAt: string;
+  hasSnapshot: boolean;
 }
 
 export interface LiveState {
@@ -66,6 +67,8 @@ export interface NewEventBody {
   cup?: number | null;
   ballColor?: BallColor | null;
   confidence?: number | null;
+  /** Kleines JPEG vom Becher als Data-URL */
+  snapshot?: string | null;
 }
 
 export type ActionResult = { ok: true } | { ok: false; error: string };

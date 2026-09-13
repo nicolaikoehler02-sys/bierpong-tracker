@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { PageHeader } from "@/components/page-header";
+import { AufsetzerDecision, type DecisionPlayer } from "@/components/statistik/aufsetzer-decision";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formationLabel, getDrill, targets } from "@/lib/drills";
 import { getEventKindsByBlock, getFinishedBlocks, getPlayers } from "@/lib/server/blocks";
@@ -22,6 +23,13 @@ export default async function StatistikPage() {
   const kindsByBlock = await getEventKindsByBlock(streakBlockIds);
   const rows = aggregateBlocks(blocks, kindsByBlock);
   const drillIds = [...new Set(rows.map((row) => row.drillId))];
+  const decisionPlayers: DecisionPlayer[] = players.map((player) => {
+    const counts = (drillId: number) => {
+      const row = rows.find((entry) => entry.drillId === drillId && entry.playerId === player.id);
+      return row && row.trials > 0 ? { successes: row.successes, trials: row.trials } : null;
+    };
+    return { name: player.name, bounce: counts(7), normal: counts(2) };
+  });
   const playerName = (playerId: number | null) =>
     playerId === null
       ? players.map((player) => player.name).join(" & ")
@@ -30,6 +38,8 @@ export default async function StatistikPage() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6">
       <PageHeader title="Statistik" subtitle="Quoten aus abgeschlossenen Blöcken · mit 95-%-Bereich" />
+
+      <AufsetzerDecision players={decisionPlayers} />
 
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Noch keine abgeschlossenen Blöcke.</p>

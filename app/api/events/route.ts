@@ -6,6 +6,7 @@ import type { NewEventBody } from "@/lib/live-types";
 const KINDS = new Set(["hit", "miss", "catch"]);
 const SOURCES = new Set(["camera", "tap"]);
 const COLORS = new Set<BallColor>(["weiss", "orange"]);
+const MAX_SNAPSHOT_LENGTH = 150_000;
 
 function parseBody(value: unknown): NewEventBody | null {
   if (typeof value !== "object" || value === null) return null;
@@ -23,6 +24,12 @@ function parseBody(value: unknown): NewEventBody | null {
     cup: Number.isInteger(cup) && (cup as number) >= 0 ? (cup as number) : null,
     ballColor: COLORS.has(ballColor as BallColor) ? (ballColor as BallColor) : null,
     confidence: typeof confidence === "number" && Number.isFinite(confidence) ? confidence : null,
+    snapshot:
+      typeof body.snapshot === "string" &&
+      body.snapshot.startsWith("data:image/jpeg;base64,") &&
+      body.snapshot.length <= MAX_SNAPSHOT_LENGTH
+        ? body.snapshot
+        : null,
   };
 }
 
@@ -48,6 +55,7 @@ export async function POST(request: Request) {
       cup: body.cup,
       ballColor: body.ballColor,
       confidence: body.confidence,
+      snapshotUrl: body.snapshot,
     })
     .returning({ id: events.id });
 

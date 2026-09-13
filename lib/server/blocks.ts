@@ -4,6 +4,19 @@ import { and, desc, eq, getTableColumns, inArray, isNotNull, isNull, sql } from 
 import { getDb } from "@/db";
 import { drillBlocks, events, players, trainingSessions } from "@/db/schema";
 
+/** Ereignis-Spalten ohne das Standbild selbst — das lädt der Browser einzeln über /api/events/[id]/snapshot. */
+const eventColumns = {
+  id: events.id,
+  kind: events.kind,
+  source: events.source,
+  cup: events.cup,
+  ballColor: events.ballColor,
+  confidence: events.confidence,
+  voidedAt: events.voidedAt,
+  createdAt: events.createdAt,
+  hasSnapshot: sql<boolean>`${events.snapshotUrl} is not null`,
+};
+
 const countKind = (kind: "hit" | "miss" | "catch") =>
   sql<number>`count(*) filter (where ${events.kind} = ${kind} and ${events.voidedAt} is null)`.mapWith(Number);
 
@@ -51,16 +64,7 @@ export async function getLiveState() {
   const activeBlock = blocks.find((block) => !block.endedAt) ?? null;
   const blockEvents = activeBlock
     ? await db
-        .select({
-          id: events.id,
-          kind: events.kind,
-          source: events.source,
-          cup: events.cup,
-          ballColor: events.ballColor,
-          confidence: events.confidence,
-          voidedAt: events.voidedAt,
-          createdAt: events.createdAt,
-        })
+        .select(eventColumns)
         .from(events)
         .where(eq(events.blockId, activeBlock.id))
         .orderBy(events.createdAt)
@@ -74,6 +78,10 @@ export async function getLiveState() {
     activeBlock,
     events: blockEvents,
   };
+}
+
+export async function getBlockEvents(blockId: string) {
+  return getDb().select(eventColumns).from(events).where(eq(events.blockId, blockId)).orderBy(events.createdAt);
 }
 
 export async function getActiveBlock() {

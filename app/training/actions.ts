@@ -112,6 +112,16 @@ export async function voidLastHit(blockId: string): Promise<ActionResult> {
   return ok;
 }
 
+/** „Treffer prüfen“: einzelnes Ereignis verwerfen oder zurückholen. */
+export async function setEventVoided(eventId: string, voided: boolean): Promise<ActionResult> {
+  if (typeof voided !== "boolean") return fail("Ungültiger Wert.");
+  await getDb()
+    .update(events)
+    .set({ voidedAt: voided ? sql`now()` : null })
+    .where(eq(events.id, eventId));
+  return ok;
+}
+
 /** Letzten Tap (Fehlwurf/Gefangen) rückgängig machen. */
 export async function voidLastTap(blockId: string): Promise<ActionResult> {
   const db = getDb();

@@ -166,6 +166,29 @@ export function capturePreview(video: HTMLVideoElement, canvas: HTMLCanvasElemen
   return canvas.toDataURL("image/jpeg", 0.6);
 }
 
+const SNAPSHOT_SIZE = 200;
+
+/** Standbild eines Treffers: quadratischer Ausschnitt um den Becher (doppelter Becherdurchmesser). */
+export function captureCupSnapshot(
+  video: HTMLVideoElement,
+  cup: { x: number; y: number } | undefined,
+  radius: number,
+  canvas: HTMLCanvasElement,
+): string | null {
+  if (!cup || video.readyState < 2 || !video.videoWidth) return null;
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  const side = Math.min(Math.max(radius * videoWidth * 4, 64), videoWidth, videoHeight);
+  const sx = Math.min(Math.max(cup.x * videoWidth - side / 2, 0), videoWidth - side);
+  const sy = Math.min(Math.max(cup.y * videoHeight - side / 2, 0), videoHeight - side);
+  canvas.width = SNAPSHOT_SIZE;
+  canvas.height = SNAPSHOT_SIZE;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(video, sx, sy, side, side, 0, 0, SNAPSHOT_SIZE, SNAPSHOT_SIZE);
+  return canvas.toDataURL("image/jpeg", 0.7);
+}
+
 export function speak(text: string): void {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   const utterance = new SpeechSynthesisUtterance(text);

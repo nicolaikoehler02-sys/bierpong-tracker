@@ -78,7 +78,8 @@ Der vollständige Projektplan mit Drill-Einordnung und Phasen steht in `tracker-
 |---|---|
 | **Jetzt** | Kamera-Fernbedienung und Test-Markierung am Tisch testen |
 | **ab Mo 14.09.** | Tracker im echten Training nutzen (W1 S1: Einzelbecher, Routine, Mittelbecher). Vor jedem Drill mit neuer Becherposition neu kalibrieren + Leer-Referenz |
-| **bis 27.09.** | Treffer-Standbilder (Vercel Blob) · Auswertungsseite **Aufsetzer-Entscheidung** (b mit Konfidenzintervall, 2b(1−s) > p) |
+| **gebaut 13.09., noch nicht gepusht/getestet** | Treffer-Standbilder (in der Datenbank, ca. 5 KB) · „Treffer prüfen“ im Dashboard · **Aufsetzer-Entscheidung** auf `/statistik` (b mit 95-%-Bereich, 2b(1−s) > p, Regler für s, Wahrscheinlichkeit „lohnt sich“, Vergleich der Spieler) |
+| **wenn Zeit zum Aufbauen** | Fotos von Einzelbecher, 10er-Pyramide und Raute über die Fernbedienung · Becherdurchmesser messen · Werferseite im Bild festlegen → dann automatische Becher-Kalibrierung |
 | **28.09.–04.10.** | **Phase 3:** automatische Becher-Kalibrierung (Formation einpassen, Becherdurchmesser einstellbar, feste Bechernummern) · Heatmap je Becherposition · Ballfarben je Spieler für Partner-Drills · Rollen-Auswertung · Same-Cup vs. p² |
 | **optional** | Seitenkamera am Laptop (Wurferkennung per Pose → Fehlwürfe, Aufsetzer, Werfer) · Instant Replay · Soundboard · Telegram-Zusammenfassung · Wochen-Kommentar per Claude API |
 | **ab 05.10.** | **Feature-Freeze** — nur noch benutzen und Bugs fixen |

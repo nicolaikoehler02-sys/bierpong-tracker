@@ -11,6 +11,7 @@ import {
   acquireWakeLock,
   applyAdvanced,
   cameraErrorMessage,
+  captureCupSnapshot,
   capturePreview,
   describeTrack,
   deviceLabel,
@@ -219,6 +220,7 @@ export function CameraTest() {
     const detector = new CupDetector();
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const snapshotCanvas = document.createElement("canvas");
     let handle = 0;
     let lastAnalysis = 0;
     let lastUi = 0;
@@ -265,6 +267,7 @@ export function CameraTest() {
               cup: hit.cup,
               ballColor: hit.color,
               confidence: hit.confidence,
+              snapshot: captureCupSnapshot(video, live.cups[hit.cup], live.radius, snapshotCanvas),
             }).then((sent) => (sent ? setSentCount((count) => count + 1) : setSendFailures((count) => count + 1)));
           }
         }

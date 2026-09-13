@@ -11,6 +11,7 @@ import {
   voidLastHit,
   voidLastTap,
 } from "@/app/training/actions";
+import { HitReview } from "@/components/training/hit-review";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { berlinToday, formatRange } from "@/lib/dates";
@@ -199,6 +200,7 @@ function SessionView({
   const plan = session.planSessionId ? planSessions.get(session.planSessionId)?.session : undefined;
   const finished = state.blocks.filter((block) => block.endedAt);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [reviewBlockId, setReviewBlockId] = useState<string | null>(null);
 
   const start = (input: { drillId: number; playerId: number | null; plannedVolume: number | null; formation: string | null }) => {
     if (input.playerId !== null) onPlayerUsed(input.playerId);
@@ -279,28 +281,39 @@ function SessionView({
                 const drill = getDrill(block.drillId);
                 const formation = drill.sections ? formationLabel(block.formation) : null;
                 return (
-                  <li
-                    key={block.id}
-                    className={`flex flex-wrap items-center justify-between gap-x-3 ${block.isTest ? "opacity-60" : ""}`}
-                  >
-                    <span>
-                      <span className="text-muted-foreground">D{drill.id}</span> {drill.short}
-                      {formation && ` · ${formation}`} · {playerLabel(state.players, block.playerId)}
-                      {block.isTest && (
-                        <span className="ml-2 rounded bg-destructive/15 px-1.5 text-xs text-destructive">Test</span>
-                      )}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="tabular-nums text-muted-foreground">{blockSummary(block, drill)}</span>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        disabled={pending}
-                        onClick={() => run(() => setBlockTest(block.id, !block.isTest))}
-                      >
-                        {block.isTest ? "Kein Test" : "Test"}
-                      </Button>
-                    </span>
+                  <li key={block.id} className="space-y-2">
+                    <div
+                      className={`flex flex-wrap items-center justify-between gap-x-3 ${block.isTest ? "opacity-60" : ""}`}
+                    >
+                      <span>
+                        <span className="text-muted-foreground">D{drill.id}</span> {drill.short}
+                        {formation && ` · ${formation}`} · {playerLabel(state.players, block.playerId)}
+                        {block.isTest && (
+                          <span className="ml-2 rounded bg-destructive/15 px-1.5 text-xs text-destructive">Test</span>
+                        )}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="tabular-nums text-muted-foreground">{blockSummary(block, drill)}</span>
+                        {block.hits > 0 && (
+                          <Button
+                            size="xs"
+                            variant={reviewBlockId === block.id ? "outline" : "ghost"}
+                            onClick={() => setReviewBlockId(reviewBlockId === block.id ? null : block.id)}
+                          >
+                            Prüfen
+                          </Button>
+                        )}
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={pending}
+                          onClick={() => run(() => setBlockTest(block.id, !block.isTest))}
+                        >
+                          {block.isTest ? "Kein Test" : "Test"}
+                        </Button>
+                      </span>
+                    </div>
+                    {reviewBlockId === block.id && <HitReview blockId={block.id} pending={pending} run={run} />}
                   </li>
                 );
               })}
@@ -330,6 +343,7 @@ function ActiveBlockPanel({
   const drill = getDrill(block.drillId);
   const [confirming, setConfirming] = useState(false);
   const [confirmValue, setConfirmValue] = useState(0);
+  const [reviewing, setReviewing] = useState(false);
 
   const cameraConnected =
     block.cameraSeenAt !== null &&
@@ -457,15 +471,32 @@ function ActiveBlockPanel({
               .map((event) => (
                 <li
                   key={event.id}
-                  className={`flex justify-between gap-2 ${event.voidedAt ? "text-muted-foreground line-through" : ""}`}
+                  className={`flex items-center justify-between gap-2 ${event.voidedAt ? "text-muted-foreground line-through" : ""}`}
                 >
-                  <span>{eventLabel(event)}</span>
+                  <span className="flex items-center gap-2">
+                    {event.hasSnapshot ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- kleines JPEG aus der eigenen API
+                      <img src={`/api/events/${event.id}/snapshot`} alt="" className="size-8 rounded object-cover" />
+                    ) : (
+                      <span className="size-8" />
+                    )}
+                    {eventLabel(event)}
+                  </span>
                   <span className="text-muted-foreground">
                     {event.source === "camera" ? "Kamera" : "Tap"} · {timeFormat.format(new Date(event.createdAt))}
                   </span>
                 </li>
               ))}
           </ul>
+        )}
+
+        {block.hits > 0 && (
+          <div className="space-y-3 border-t pt-3">
+            <Button variant="outline" size="sm" onClick={() => setReviewing(!reviewing)}>
+              {reviewing ? "Treffer prüfen schließen" : "Treffer prüfen"}
+            </Button>
+            {reviewing && <HitReview blockId={block.id} pending={pending} run={run} />}
+          </div>
         )}
       </CardContent>
     </Card>
