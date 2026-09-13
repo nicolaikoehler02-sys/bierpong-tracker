@@ -22,6 +22,13 @@
       "when": 1789304081566,
       "tag": "0002_seed_players",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789306759450,
+      "tag": "0003_camera_remote",
+      "breakpoints": true
     }
   ]
 }

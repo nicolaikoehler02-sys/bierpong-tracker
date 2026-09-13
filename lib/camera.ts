@@ -152,6 +152,20 @@ export function stopMedia(
   }
 }
 
+/** Kleines JPEG-Vorschaubild des aktuellen Videobilds als Data-URL. */
+export function capturePreview(video: HTMLVideoElement, canvas: HTMLCanvasElement, width: number): string | null {
+  if (video.readyState < 2 || !video.videoWidth) return null;
+  const height = Math.round((width * video.videoHeight) / video.videoWidth);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.6);
+}
+
 export function speak(text: string): void {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   const utterance = new SpeechSynthesisUtterance(text);

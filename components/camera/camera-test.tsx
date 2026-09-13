@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RangeInput } from "@/components/range-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { postEvent } from "@/lib/api-client";
 import {
   type CapabilityRow,
   type RangeCapability,
   acquireWakeLock,
   applyAdvanced,
   cameraErrorMessage,
+  capturePreview,
   describeTrack,
   deviceLabel,
   lockTrack,
@@ -18,25 +21,25 @@ import {
   supportsTorch,
   zoomRange,
 } from "@/lib/camera";
-import { postEvent } from "@/lib/api-client";
+import type { CameraMode, CameraSettings, CameraStatus, CameraSyncResponse } from "@/lib/camera-types";
 import { type ColorParams, defaultColorParams } from "@/lib/detection/color";
 import { type Cup, type CupState, CupDetector, type DetectionParams, type HitEvent } from "@/lib/detection/detector";
 import { drawOverlay } from "@/lib/detection/overlay";
 import { getDrill } from "@/lib/drills";
 import type { ActiveBlockInfo } from "@/lib/live-types";
 
-const ACTIVE_POLL_MS = 2000;
 const WORK_WIDTH = 320;
+const PREVIEW_WIDTH = 360;
 const ANALYSIS_INTERVAL_MS = 66;
 const UI_INTERVAL_MS = 250;
+const SYNC_MS = 1500;
 const FRAMES_OFF = 10;
 const MAX_ZOOM = 3;
 const STORAGE_KEY = "bierpong-kamera-v2";
 const LEGACY_STORAGE_KEY = "bierpong-kamera-v1";
 
 type Status = "idle" | "starting" | "running" | "error";
-type Source = "none" | "camera" | "file";
-type Mode = "calibrate" | "detect";
+type Source = CameraStatus["source"];
 
 interface StoredSettings {
   cups: Cup[];
@@ -103,7 +106,7 @@ export function CameraTest() {
   const [torch, setTorch] = useState(false);
   const [lockMessage, setLockMessage] = useState<string | null>(null);
   const [referenceMessage, setReferenceMessage] = useState<string | null>(null);
-  const [mode, setMode] = useState<Mode>("calibrate");
+  const [mode, setMode] = useState<CameraMode>("calibrate");
   const [hasReference, setHasReference] = useState(false);
   const [readings, setReadings] = useState<CupState[]>([]);
   const [events, setEvents] = useState<HitEvent[]>([]);
@@ -123,6 +126,10 @@ export function CameraTest() {
   const activeRef = useRef(false);
   const referenceRequestedRef = useRef(false);
   const resetRequestedRef = useRef(false);
+  const wantPreviewRef = useRef(false);
+  /** Zuletzt übernommene Fernbedienungs-Version; null = noch nicht synchronisiert */
+  const appliedVersionRef = useRef<number | null>(null);
+  const lastCommandIdRef = useRef<number | null>(null);
   const liveRef = useRef({
     cups,
     radius,
@@ -132,6 +139,33 @@ export function CameraTest() {
     sendHits,
     params: { threshold, framesOn, framesOff: FRAMES_OFF, handThreshold, color } as DetectionParams,
   });
+  const settingsRef = useRef<CameraSettings>({
+    cups,
+    radius,
+    zoom,
+    threshold,
+    framesOn,
+    handThreshold,
+    color,
+    mode,
+    voice,
+    sendHits,
+    torch,
+  });
+  const statusRef = useRef<CameraStatus>({
+    running: false,
+    source: "none",
+    fps: 0,
+    hasReference: false,
+    zoomRange: null,
+    torchAvailable: false,
+    readings: [],
+    referenceMessage: null,
+  });
+  const actionsRef = useRef<{
+    applyRemoteSettings: (settings: CameraSettings) => void;
+    captureReference: () => Promise<void>;
+  } | null>(null);
 
   // Aktuelle Werte für die Analyse-Schleife bereitstellen.
   useEffect(() => {
@@ -145,6 +179,29 @@ export function CameraTest() {
       params: { threshold, framesOn, framesOff: FRAMES_OFF, handThreshold, color },
     };
   }, [cups, radius, mode, voice, activeBlock, sendHits, threshold, framesOn, handThreshold, color]);
+
+  // Einstellungen und Status für die Meldung an den Server bereitstellen.
+  useEffect(() => {
+    settingsRef.current = { cups, radius, zoom, threshold, framesOn, handThreshold, color, mode, voice, sendHits, torch };
+  }, [cups, radius, zoom, threshold, framesOn, handThreshold, color, mode, voice, sendHits, torch]);
+
+  useEffect(() => {
+    statusRef.current = {
+      running: status === "running",
+      source,
+      fps,
+      hasReference,
+      zoomRange: zoomCapability,
+      torchAvailable,
+      readings,
+      referenceMessage,
+    };
+  }, [status, source, fps, hasReference, zoomCapability, torchAvailable, readings, referenceMessage]);
+
+  // Die Sync-Schleife braucht immer die aktuellen Handler (sie lesen Zustand wie `source`).
+  useEffect(() => {
+    actionsRef.current = { applyRemoteSettings, captureReference: handleCaptureReference };
+  });
 
   useEffect(() => {
     try {
@@ -247,32 +304,64 @@ export function CameraTest() {
     };
   }, []);
 
-  // Aktiven Drill-Block vom Server holen; läuft die Kamera, meldet sie sich dabei als verbunden.
+  // Regelmäßige Meldung an den Server: Status, Einstellungen, ggf. Vorschaubild.
+  // Zurück kommen aktiver Block, Wunsch-Einstellungen vom Laptop und Befehle.
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const poll = async () => {
+    const previewCanvas = document.createElement("canvas");
+
+    const sync = async () => {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), ACTIVE_POLL_MS * 4);
+      const timeout = setTimeout(() => controller.abort(), SYNC_MS * 5);
       try {
-        const response = await fetch(`/api/active?camera=${activeRef.current ? 1 : 0}`, {
+        const video = videoRef.current;
+        const preview = wantPreviewRef.current && video ? capturePreview(video, previewCanvas, PREVIEW_WIDTH) : null;
+        const response = await fetch("/api/camera/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            camera: activeRef.current,
+            status: statusRef.current,
+            settings: settingsRef.current,
+            preview,
+          }),
           cache: "no-store",
           signal: controller.signal,
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as { block: ActiveBlockInfo | null };
-        if (!cancelled) {
-          setActiveBlock(data.block);
-          setLinkStatus("ok");
+        const data = (await response.json()) as CameraSyncResponse;
+        if (cancelled) return;
+
+        setActiveBlock(data.block);
+        setLinkStatus("ok");
+        wantPreviewRef.current = data.wantPreview;
+
+        // Beim ersten Kontakt nur merken, was schon auf dem Server liegt — alte Befehle nicht erneut ausführen.
+        const remoteVersion = data.remote?.version ?? 0;
+        if (appliedVersionRef.current === null) {
+          appliedVersionRef.current = remoteVersion;
+        } else if (data.remote && remoteVersion > appliedVersionRef.current) {
+          appliedVersionRef.current = remoteVersion;
+          actionsRef.current?.applyRemoteSettings(data.remote.settings);
+        }
+
+        const commandId = data.command?.id ?? 0;
+        if (lastCommandIdRef.current === null) {
+          lastCommandIdRef.current = commandId;
+        } else if (data.command && commandId > lastCommandIdRef.current) {
+          lastCommandIdRef.current = commandId;
+          if (data.command.type === "capture_reference") void actionsRef.current?.captureReference();
         }
       } catch {
         if (!cancelled) setLinkStatus("offline");
       } finally {
         clearTimeout(timeout);
+        if (!cancelled) timer = setTimeout(sync, SYNC_MS);
       }
-      if (!cancelled) timer = setTimeout(poll, ACTIVE_POLL_MS);
     };
-    void poll();
+
+    void sync();
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -396,6 +485,22 @@ export function CameraTest() {
     }
   }
 
+  /** Übernimmt Einstellungen, die am Laptop geändert wurden. */
+  function applyRemoteSettings(next: CameraSettings) {
+    const current = settingsRef.current;
+    if (JSON.stringify(next.cups) !== JSON.stringify(current.cups)) changeCups(next.cups);
+    if (next.radius !== current.radius) changeRadius(next.radius);
+    if (next.zoom !== current.zoom) changeZoom(next.zoom);
+    if (next.torch !== current.torch) void toggleTorch(next.torch);
+    setThreshold(next.threshold);
+    setFramesOn(next.framesOn);
+    setHandThreshold(next.handThreshold);
+    setColor(next.color);
+    setMode(next.mode);
+    setVoice(next.voice);
+    setSendHits(next.sendHits);
+  }
+
   async function handleCaptureReference() {
     const track = source === "camera" ? currentTrack() : null;
     let message = "Referenz aufgenommen.";
@@ -474,6 +579,9 @@ export function CameraTest() {
               Gesendet: {sentCount}
               {sendFailures > 0 && <span className="text-destructive"> · fehlgeschlagen: {sendFailures}</span>}
               {mode !== "detect" && " · Treffer zählen nur im Modus „Erkennen“"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Alle Einstellungen lassen sich auch am Laptop unter „Training“ → Kamera-Fernbedienung ändern.
             </p>
           </CardContent>
         </Card>
@@ -721,41 +829,5 @@ export function CameraTest() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function RangeInput({
-  label,
-  value,
-  min,
-  max,
-  step,
-  format,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  format?: (value: number) => string;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className="flex justify-between gap-2 text-sm">
-        <span>{label}</span>
-        <span className="tabular-nums text-muted-foreground">{format ? format(value) : value}</span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full accent-emerald-500"
-      />
-    </label>
   );
 }

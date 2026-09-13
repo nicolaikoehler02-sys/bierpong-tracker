@@ -23,6 +23,7 @@ export interface BlockSummary {
   startedAt: string;
   endedAt: string | null;
   cameraSeenAt: string | null;
+  isTest: boolean;
   hits: number;
   misses: number;
   catches: number;

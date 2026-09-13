@@ -79,6 +79,13 @@ export async function endBlock(blockId: string, confirmedVolume: number | null):
   return ok;
 }
 
+/** Markiert einen Block als Test (zählt nicht in der Statistik) oder hebt das auf. */
+export async function setBlockTest(blockId: string, isTest: boolean): Promise<ActionResult> {
+  if (typeof isTest !== "boolean") return fail("Ungültiger Wert.");
+  await getDb().update(drillBlocks).set({ isTest }).where(eq(drillBlocks.id, blockId));
+  return ok;
+}
+
 export async function addTapEvent(blockId: string, kind: TapEventKind): Promise<ActionResult> {
   const db = getDb();
   const [block] = await db

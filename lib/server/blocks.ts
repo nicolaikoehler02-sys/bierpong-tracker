@@ -105,8 +105,11 @@ export async function touchCamera(blockId: string) {
     );
 }
 
+/** Abgeschlossene Blöcke ohne Testblöcke — Grundlage der Statistik. */
 export async function getFinishedBlocks() {
-  return blocksWithCounts().where(isNotNull(drillBlocks.endedAt)).orderBy(drillBlocks.startedAt);
+  return blocksWithCounts()
+    .where(and(isNotNull(drillBlocks.endedAt), eq(drillBlocks.isTest, false)))
+    .orderBy(drillBlocks.startedAt);
 }
 
 /** Zeitlich sortierte Ereignisarten je Block, für Serien-Auswertungen. */

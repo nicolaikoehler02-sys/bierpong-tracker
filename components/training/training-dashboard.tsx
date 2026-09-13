@@ -5,6 +5,7 @@ import {
   addTapEvent,
   endBlock,
   endSession,
+  setBlockTest,
   startBlock,
   startSession,
   voidLastHit,
@@ -278,12 +279,28 @@ function SessionView({
                 const drill = getDrill(block.drillId);
                 const formation = drill.sections ? formationLabel(block.formation) : null;
                 return (
-                  <li key={block.id} className="flex flex-wrap justify-between gap-x-3">
+                  <li
+                    key={block.id}
+                    className={`flex flex-wrap items-center justify-between gap-x-3 ${block.isTest ? "opacity-60" : ""}`}
+                  >
                     <span>
                       <span className="text-muted-foreground">D{drill.id}</span> {drill.short}
                       {formation && ` · ${formation}`} · {playerLabel(state.players, block.playerId)}
+                      {block.isTest && (
+                        <span className="ml-2 rounded bg-destructive/15 px-1.5 text-xs text-destructive">Test</span>
+                      )}
                     </span>
-                    <span className="tabular-nums text-muted-foreground">{blockSummary(block, drill)}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="tabular-nums text-muted-foreground">{blockSummary(block, drill)}</span>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        disabled={pending}
+                        onClick={() => run(() => setBlockTest(block.id, !block.isTest))}
+                      >
+                        {block.isTest ? "Kein Test" : "Test"}
+                      </Button>
+                    </span>
                   </li>
                 );
               })}
@@ -341,15 +358,25 @@ function ActiveBlockPanel({
               {formation && ` · ${formation}`} · seit {clockFormat.format(new Date(block.startedAt))}
             </CardDescription>
           </div>
-          {drill.type !== "D" && (
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                cameraConnected ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"
-              }`}
+          <div className="flex flex-wrap items-center gap-2">
+            {drill.type !== "D" && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                  cameraConnected ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"
+                }`}
+              >
+                {cameraConnected ? "iPhone verbunden" : "iPhone nicht verbunden"}
+              </span>
+            )}
+            <Button
+              size="xs"
+              variant={block.isTest ? "destructive" : "ghost"}
+              disabled={pending}
+              onClick={() => run(() => setBlockTest(block.id, !block.isTest))}
             >
-              {cameraConnected ? "iPhone verbunden" : "iPhone nicht verbunden"}
-            </span>
-          )}
+              {block.isTest ? "Test ✓" : "Als Test markieren"}
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
@@ -527,7 +554,7 @@ function PlanItems({
               );
             }
             const drill = getDrill(item.drillId);
-            const done = blocks.filter((block) => block.drillId === drill.id && block.endedAt);
+            const done = blocks.filter((block) => block.drillId === drill.id && block.endedAt && !block.isTest);
             return (
               <li key={index} className="space-y-1.5 border-t pt-3 first:border-t-0 first:pt-0">
                 <div className="flex flex-wrap justify-between gap-x-3 text-sm">

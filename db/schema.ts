@@ -1,4 +1,17 @@
-import { integer, pgTable, real, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  real,
+  serial,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
+// Relativer Import, damit drizzle-kit das Schema ohne Pfad-Aliase laden kann.
+import type { CameraCommand, CameraSettings, CameraStatus } from "../lib/camera-types";
 
 export type BallColor = "weiss" | "orange";
 export type EventKind = "hit" | "miss" | "attempt_end" | "catch" | "correction";
@@ -39,6 +52,26 @@ export const drillBlocks = pgTable("drill_blocks", {
   endedAt: timestamp("ended_at", { withTimezone: true }),
   /** Zuletzt hat sich die Kamera-Seite für diesen Block gemeldet */
   cameraSeenAt: timestamp("camera_seen_at", { withTimezone: true }),
+  /** Testblock — zählt nicht in der Statistik */
+  isTest: boolean("is_test").notNull().default(false),
+});
+
+/**
+ * Zustand und Fernsteuerung der Kamera-Seite (eine Zeile, id = "main").
+ * Das iPhone meldet Status, Einstellungen und Vorschaubild; das Dashboard schreibt Wunsch-Einstellungen und Befehle.
+ */
+export const cameraControl = pgTable("camera_control", {
+  id: text("id").primaryKey(),
+  status: jsonb("status").$type<CameraStatus>(),
+  settings: jsonb("settings").$type<CameraSettings>(),
+  preview: text("preview"),
+  previewAt: timestamp("preview_at", { withTimezone: true }),
+  reportedAt: timestamp("reported_at", { withTimezone: true }),
+  /** Zuletzt hat das Dashboard die Kamera angesehen — nur dann schickt das iPhone Vorschaubilder */
+  viewerSeenAt: timestamp("viewer_seen_at", { withTimezone: true }),
+  remoteSettings: jsonb("remote_settings").$type<CameraSettings>(),
+  remoteVersion: bigint("remote_version", { mode: "number" }).notNull().default(0),
+  command: jsonb("command").$type<CameraCommand>(),
 });
 
 /** Ein einzelnes Ereignis: Treffer, Fehlwurf-Tap, Korrektur … */
