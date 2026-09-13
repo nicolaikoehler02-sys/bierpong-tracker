@@ -3,6 +3,7 @@ import type { AnalysisResult, Cup } from "./detector";
 const COLOR_IDLE = "rgba(255, 255, 255, 0.85)";
 const COLOR_PENDING = "#facc15";
 const COLOR_PRESENT = "#22c55e";
+const COLOR_BLOCKED = "#60a5fa";
 
 /** Zeichnet Becherkreise, Nummern und Füllstand über das Videobild. */
 export function drawOverlay(
@@ -32,7 +33,13 @@ export function drawOverlay(
     const state = result?.cups[index];
     const x = cup.x * width;
     const y = cup.y * height;
-    const color = state?.present ? COLOR_PRESENT : state?.pending ? COLOR_PENDING : COLOR_IDLE;
+    const color = state?.blocked
+      ? COLOR_BLOCKED
+      : state?.present
+        ? COLOR_PRESENT
+        : state?.pending
+          ? COLOR_PENDING
+          : COLOR_IDLE;
 
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -50,7 +57,7 @@ export function drawOverlay(
 
     if (state) {
       ctx.font = `${11 * dpr}px system-ui, sans-serif`;
-      ctx.fillText(`${Math.round(state.level * 100)} %`, x, y + r + 10 * dpr);
+      ctx.fillText(state.blocked ? "Hand" : `${Math.round(state.level * 100)} %`, x, y + r + 10 * dpr);
     }
   });
 }

@@ -5,12 +5,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   type CapabilityRow,
+  type RangeCapability,
   acquireWakeLock,
+  applyAdvanced,
   cameraErrorMessage,
   describeTrack,
+  deviceLabel,
   lockTrack,
+  lockWhiteBalance,
   speak,
   stopMedia,
+  supportsTorch,
+  zoomRange,
 } from "@/lib/camera";
 import { type ColorParams, defaultColorParams } from "@/lib/detection/color";
 import { type Cup, type CupState, CupDetector, type DetectionParams, type HitEvent } from "@/lib/detection/detector";
@@ -20,7 +26,9 @@ const WORK_WIDTH = 320;
 const ANALYSIS_INTERVAL_MS = 66;
 const UI_INTERVAL_MS = 250;
 const FRAMES_OFF = 10;
-const STORAGE_KEY = "bierpong-kamera-v1";
+const MAX_ZOOM = 3;
+const STORAGE_KEY = "bierpong-kamera-v2";
+const LEGACY_STORAGE_KEY = "bierpong-kamera-v1";
 
 type Status = "idle" | "starting" | "running" | "error";
 type Source = "none" | "camera" | "file";
@@ -29,40 +37,55 @@ type Mode = "calibrate" | "detect";
 interface StoredSettings {
   cups: Cup[];
   radius: number;
+  zoom: number;
   threshold: number;
   framesOn: number;
+  handThreshold: number;
   color: ColorParams;
 }
 
 const defaultSettings: StoredSettings = {
   cups: [],
   radius: 0.045,
-  threshold: 0.06,
+  zoom: 1,
+  threshold: 0.12,
   framesOn: 5,
+  handThreshold: 0.25,
   color: defaultColorParams,
 };
 
 function loadSettings(): StoredSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultSettings;
-    const parsed = JSON.parse(raw) as Partial<StoredSettings>;
-    return { ...defaultSettings, ...parsed, color: { ...defaultColorParams, ...parsed.color } };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<StoredSettings>;
+      return { ...defaultSettings, ...parsed, color: { ...defaultColorParams, ...parsed.color } };
+    }
+    // Aus v1 nur die Kalibrierung übernehmen, damit die neuen Standardwerte greifen.
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy) as Partial<StoredSettings>;
+      return { ...defaultSettings, cups: parsed.cups ?? [], radius: parsed.radius ?? defaultSettings.radius };
+    }
   } catch {
-    return defaultSettings;
+    // Kaputte oder gesperrte Einstellungen — mit Standardwerten weitermachen.
   }
+  return defaultSettings;
 }
 
 const timeFormat = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const percent = (value: number) => `${Math.round(value * 100)} %`;
 const colorLabel = (color: HitEvent["color"]) => (color === "orange" ? "orange" : "weiß");
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export function CameraTest() {
   const [initial] = useState(loadSettings);
   const [cups, setCups] = useState<Cup[]>(initial.cups);
   const [radius, setRadius] = useState(initial.radius);
+  const [zoom, setZoom] = useState(initial.zoom);
   const [threshold, setThreshold] = useState(initial.threshold);
   const [framesOn, setFramesOn] = useState(initial.framesOn);
+  const [handThreshold, setHandThreshold] = useState(initial.handThreshold);
   const [color, setColor] = useState<ColorParams>(initial.color);
 
   const [status, setStatus] = useState<Status>("idle");
@@ -71,7 +94,11 @@ export function CameraTest() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("");
   const [capabilities, setCapabilities] = useState<CapabilityRow[]>([]);
+  const [zoomCapability, setZoomCapability] = useState<RangeCapability | null>(null);
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torch, setTorch] = useState(false);
   const [lockMessage, setLockMessage] = useState<string | null>(null);
+  const [referenceMessage, setReferenceMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("calibrate");
   const [hasReference, setHasReference] = useState(false);
   const [readings, setReadings] = useState<CupState[]>([]);
@@ -86,12 +113,13 @@ export function CameraTest() {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const activeRef = useRef(false);
   const referenceRequestedRef = useRef(false);
+  const resetRequestedRef = useRef(false);
   const liveRef = useRef({
     cups,
     radius,
     mode,
     voice,
-    params: { threshold, framesOn, framesOff: FRAMES_OFF, color } as DetectionParams,
+    params: { threshold, framesOn, framesOff: FRAMES_OFF, handThreshold, color } as DetectionParams,
   });
 
   // Aktuelle Werte für die Analyse-Schleife bereitstellen.
@@ -101,17 +129,20 @@ export function CameraTest() {
       radius,
       mode,
       voice,
-      params: { threshold, framesOn, framesOff: FRAMES_OFF, color },
+      params: { threshold, framesOn, framesOff: FRAMES_OFF, handThreshold, color },
     };
-  }, [cups, radius, mode, voice, threshold, framesOn, color]);
+  }, [cups, radius, mode, voice, threshold, framesOn, handThreshold, color]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ cups, radius, threshold, framesOn, color }));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ cups, radius, zoom, threshold, framesOn, handThreshold, color } satisfies StoredSettings),
+      );
     } catch {
       // Privater Modus o. Ä. — Einstellungen gelten dann nur für diese Sitzung.
     }
-  }, [cups, radius, threshold, framesOn, color]);
+  }, [cups, radius, zoom, threshold, framesOn, handThreshold, color]);
 
   // Analyse-Schleife: Frame verkleinern, Becher auswerten, Overlay zeichnen.
   useEffect(() => {
@@ -142,6 +173,10 @@ export function CameraTest() {
       const frame = ctx.getImageData(0, 0, width, height);
 
       if (detector.ensureLayout(live.cups, live.radius, width, height)) setHasReference(false);
+      if (resetRequestedRef.current) {
+        resetRequestedRef.current = false;
+        detector.resetReference();
+      }
       if (referenceRequestedRef.current) {
         referenceRequestedRef.current = false;
         detector.captureReference(frame);
@@ -187,6 +222,15 @@ export function CameraTest() {
     };
   }, []);
 
+  const currentTrack = () => streamRef.current?.getVideoTracks()[0] ?? null;
+
+  /** Bild hat sich verändert (Zoom, Licht, Kamera) — Referenz passt nicht mehr. */
+  function invalidateReference() {
+    resetRequestedRef.current = true;
+    setHasReference(false);
+    setReferenceMessage(null);
+  }
+
   async function startCamera(nextDeviceId?: string) {
     setError(null);
     setLockMessage(null);
@@ -201,6 +245,7 @@ export function CameraTest() {
 
     setStatus("starting");
     stopMedia(streamRef, objectUrlRef);
+    invalidateReference();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -219,6 +264,14 @@ export function CameraTest() {
       await video.play();
 
       const track = stream.getVideoTracks()[0];
+      const range = zoomRange(track);
+      setZoomCapability(range);
+      if (range) {
+        const target = clamp(zoom, range.min, Math.min(range.max, MAX_ZOOM));
+        if (await applyAdvanced(track, { zoom: target })) setZoom(target);
+      }
+      setTorchAvailable(supportsTorch(track));
+      setTorch(false);
       setCapabilities(describeTrack(track));
       setDeviceId(track.getSettings().deviceId ?? "");
       const allDevices = await navigator.mediaDevices.enumerateDevices();
@@ -238,6 +291,7 @@ export function CameraTest() {
     const video = videoRef.current;
     if (!video) return;
     stopMedia(streamRef, objectUrlRef);
+    invalidateReference();
     const url = URL.createObjectURL(file);
     objectUrlRef.current = url;
     video.srcObject = null;
@@ -249,6 +303,8 @@ export function CameraTest() {
     activeRef.current = true;
     setCapabilities([]);
     setDevices([]);
+    setZoomCapability(null);
+    setTorchAvailable(false);
     setLockMessage(null);
     setError(null);
     setSource("file");
@@ -258,11 +314,43 @@ export function CameraTest() {
   function changeCups(next: Cup[]) {
     setCups(next);
     setHasReference(false);
+    setReferenceMessage(null);
   }
 
   function changeRadius(next: number) {
     setRadius(next);
     setHasReference(false);
+    setReferenceMessage(null);
+  }
+
+  function changeZoom(next: number) {
+    setZoom(next);
+    invalidateReference();
+    const track = currentTrack();
+    if (track) void applyAdvanced(track, { zoom: next });
+  }
+
+  async function toggleTorch(next: boolean) {
+    const track = currentTrack();
+    if (!track) return;
+    if (await applyAdvanced(track, { torch: next })) {
+      setTorch(next);
+      invalidateReference();
+    }
+  }
+
+  async function handleCaptureReference() {
+    const track = source === "camera" ? currentTrack() : null;
+    let message = "Referenz aufgenommen.";
+    if (track) {
+      const locked = await lockWhiteBalance(track);
+      message = locked
+        ? "Referenz aufgenommen, Weißabgleich festgesetzt."
+        : "Referenz aufgenommen. Weißabgleich ließ sich nicht festsetzen.";
+      setCapabilities(describeTrack(track));
+    }
+    referenceRequestedRef.current = true;
+    setReferenceMessage(message);
   }
 
   function handleOverlayPointer(event: React.PointerEvent<HTMLCanvasElement>) {
@@ -275,7 +363,7 @@ export function CameraTest() {
   }
 
   async function handleLock() {
-    const track = streamRef.current?.getVideoTracks()[0];
+    const track = currentTrack();
     if (!track) return;
     setLockMessage(await lockTrack(track));
     setCapabilities(describeTrack(track));
@@ -341,10 +429,32 @@ export function CameraTest() {
               >
                 {devices.map((device, index) => (
                   <option key={device.deviceId} value={device.deviceId}>
-                    {device.label || `Kamera ${index + 1}`}
+                    {deviceLabel(device, index)}
                   </option>
                 ))}
               </select>
+            )}
+            {zoomCapability && (
+              <RangeInput
+                label="Zoom"
+                value={zoom}
+                min={zoomCapability.min}
+                max={Math.min(zoomCapability.max, MAX_ZOOM)}
+                step={0.05}
+                format={(value) => `${value.toFixed(2).replace(".", ",")}×`}
+                onChange={changeZoom}
+              />
+            )}
+            {torchAvailable && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={torch} onChange={(event) => void toggleTorch(event.target.checked)} />
+                Licht
+              </label>
+            )}
+            {(zoomCapability || torchAvailable) && (
+              <p className="text-xs text-muted-foreground">
+                Zoom oder Licht ändern verwirft die Referenz. Nach einer Zoom-Änderung Becher neu antippen.
+              </p>
             )}
             {error && <p className="text-sm text-destructive">{error}</p>}
           </CardContent>
@@ -399,23 +509,35 @@ export function CameraTest() {
             <Button
               variant="secondary"
               disabled={status !== "running" || !cups.length}
-              onClick={() => {
-                referenceRequestedRef.current = true;
-              }}
+              onClick={() => void handleCaptureReference()}
             >
               Leer-Referenz aufnehmen
             </Button>
-            <RangeInput label="Schwelle" value={threshold} min={0.01} max={0.3} step={0.01} format={percent} onChange={setThreshold} />
+            {referenceMessage && <p className="text-xs text-muted-foreground">{referenceMessage}</p>}
+            <RangeInput label="Schwelle" value={threshold} min={0.01} max={0.4} step={0.01} format={percent} onChange={setThreshold} />
             <RangeInput label="Stabile Frames" value={framesOn} min={2} max={15} step={1} onChange={setFramesOn} />
+            <RangeInput
+              label="Hand-Sperre ab Randänderung"
+              value={handThreshold}
+              min={0.05}
+              max={0.8}
+              step={0.05}
+              format={percent}
+              onChange={setHandThreshold}
+            />
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={voice} onChange={(event) => setVoice(event.target.checked)} />
               Treffer ansagen
             </label>
             {readings.length > 0 && (
-              <ul className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">
+              <ul className="space-y-0.5 text-xs tabular-nums text-muted-foreground">
                 {readings.map((reading, index) => (
-                  <li key={index} className={reading.present ? "text-emerald-400" : undefined}>
-                    #{index + 1} weiß {percent(reading.white)} · or. {percent(reading.orange)}
+                  <li
+                    key={index}
+                    className={reading.blocked ? "text-sky-400" : reading.present ? "text-emerald-400" : undefined}
+                  >
+                    #{index + 1} {reading.blocked && "Hand · "}weiß {percent(reading.white)} · orange{" "}
+                    {percent(reading.orange)} · Rand {percent(reading.edgeChange)}
                   </li>
                 ))}
               </ul>

@@ -39,7 +39,7 @@
 | **Native App mit Expo + VisionCamera**, Cloud-Build ohne Mac | Volle Kamerakontrolle, 60–240 fps | Apple Developer Program (99 €/Jahr), langsamere Entwicklungsschleife |
 | **Raspberry Pi mit Kameramodul** | Volle Kontrolle, Dauerbetrieb | Hardware kaufen, mehr Bastelei |
 
-**Entscheidungspunkt:** nach dem Küchentisch-Test in Phase 1.
+**Entschieden am 13.09.2026 nach dem Küchentisch-Test: Safari reicht.** Oranger und weißer Ball werden erkannt (Ball ca. 27 % Füllstand bei 6 % Schwelle, 15 Analysen/s). Safari auf dem iPhone 15 Pro Max erlaubt: Weißabgleich festsetzen, Zoom 0,5–10, Licht, bis 60 fps. Nicht steuerbar: Belichtung, ISO, Fokus.
 
 ---
 

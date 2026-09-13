@@ -16,8 +16,10 @@ export const defaultColorParams: ColorParams = {
   whiteMaxSat: 0.25,
   whiteMinVal: 0.7,
   orangeHueMin: 12,
-  orangeHueMax: 45,
-  orangeMinSat: 0.45,
+  // Gelb-orange Bälle liegen je nach Licht bei 40–50°.
+  orangeHueMax: 55,
+  // Höher als Hauttöne, damit Hände seltener als Ball zählen.
+  orangeMinSat: 0.55,
   orangeMinVal: 0.4,
   minChange: 60,
 };

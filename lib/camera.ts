@@ -7,6 +7,11 @@ export interface CapabilityRow {
   possible: string;
 }
 
+export interface RangeCapability {
+  min: number;
+  max: number;
+}
+
 const interestingCapabilities: Array<[name: string, label: string]> = [
   ["width", "Breite"],
   ["height", "Höhe"],
@@ -34,11 +39,13 @@ function formatValue(value: unknown): string {
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
   if (typeof value === "boolean") return value ? "ja" : "nein";
   if (typeof value === "object") {
-    const range = value as { min?: unknown; max?: unknown };
-    if (typeof range.min === "number" && typeof range.max === "number") {
-      return `${formatValue(range.min)}–${formatValue(range.max)}`;
-    }
-    return JSON.stringify(value);
+    const { min, max } = value as { min?: unknown; max?: unknown };
+    const hasMin = typeof min === "number";
+    const hasMax = typeof max === "number";
+    if (hasMin && hasMax) return `${formatValue(min)}–${formatValue(max)}`;
+    if (hasMin) return `ab ${formatValue(min)}`;
+    if (hasMax) return `bis ${formatValue(max)}`;
+    return "–";
   }
   return String(value);
 }
@@ -55,33 +62,56 @@ export function describeTrack(track: MediaStreamTrack): CapabilityRow[] {
   }));
 }
 
+export function deviceLabel(device: MediaDeviceInfo, index: number): string {
+  const label = device.label || `Kamera ${index + 1}`;
+  return /triple|dual/i.test(label) ? `${label} (Zoom 0,5 = Ultraweitwinkel)` : label;
+}
+
+export function zoomRange(track: MediaStreamTrack): RangeCapability | null {
+  const zoom = capabilitiesOf(track).zoom as { min?: unknown; max?: unknown } | undefined;
+  if (!zoom || typeof zoom.min !== "number" || typeof zoom.max !== "number") return null;
+  return { min: zoom.min, max: zoom.max };
+}
+
+export function supportsTorch(track: MediaStreamTrack): boolean {
+  const torch = capabilitiesOf(track).torch;
+  return torch === true || (Array.isArray(torch) && torch.includes(true));
+}
+
+function supportsManual(track: MediaStreamTrack, key: string): boolean {
+  const modes = capabilitiesOf(track)[key];
+  return Array.isArray(modes) && modes.includes("manual");
+}
+
+export async function applyAdvanced(track: MediaStreamTrack, constraint: Record<string, unknown>): Promise<boolean> {
+  try {
+    await track.applyConstraints({ advanced: [constraint] } as MediaTrackConstraints);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Setzt den Weißabgleich fest, damit Farben nicht mit dem Licht wandern. */
+export async function lockWhiteBalance(track: MediaStreamTrack): Promise<boolean> {
+  if (!supportsManual(track, "whiteBalanceMode")) return false;
+  return applyAdvanced(track, { whiteBalanceMode: "manual" });
+}
+
 /** Versucht Belichtung, Weißabgleich und Fokus festzusetzen. */
 export async function lockTrack(track: MediaStreamTrack): Promise<string> {
-  const capabilities = capabilitiesOf(track);
-  const supportsManual = (key: string) => {
-    const modes = capabilities[key];
-    return Array.isArray(modes) && modes.includes("manual");
-  };
+  const candidates: Array<[key: string, label: string]> = [
+    ["exposureMode", "Belichtung"],
+    ["whiteBalanceMode", "Weißabgleich"],
+    ["focusMode", "Fokus"],
+  ];
+  const supported = candidates.filter(([key]) => supportsManual(track, key));
+  if (!supported.length) return "Dieses Gerät erlaubt im Browser keine Sperre.";
 
-  const advanced: Record<string, string>[] = [];
-  const locked: string[] = [];
-  if (supportsManual("exposureMode")) {
-    advanced.push({ exposureMode: "manual" });
-    locked.push("Belichtung");
-  }
-  if (supportsManual("whiteBalanceMode")) {
-    advanced.push({ whiteBalanceMode: "manual" });
-    locked.push("Weißabgleich");
-  }
-  if (supportsManual("focusMode")) {
-    advanced.push({ focusMode: "manual" });
-    locked.push("Fokus");
-  }
-
-  if (!advanced.length) return "Dieses Gerät erlaubt im Browser keine Sperre.";
+  const advanced = supported.map(([key]) => ({ [key]: "manual" }));
   try {
     await track.applyConstraints({ advanced } as MediaTrackConstraints);
-    return `Gesperrt: ${locked.join(", ")}`;
+    return `Gesperrt: ${supported.map(([, label]) => label).join(", ")}`;
   } catch {
     return "Sperren fehlgeschlagen.";
   }
