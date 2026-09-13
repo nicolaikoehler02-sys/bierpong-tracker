@@ -3,7 +3,7 @@
 # Bierpong-Tracker
 
 Kamera-basierter Trefferquoten-Tracker für die Bierpong-Turniervorbereitung (Turnier: Sa 17.10.2026).
-Projektplan: `tracker-plan.md` · Trainingsplan: `bierpong-trainingsplan.md` · Kontext: `uebergabe-bierpong.md`.
+**Aktueller Stand zuerst:** `arbeitsstand.md` · Projektplan: `tracker-plan.md` · Trainingsplan: `bierpong-trainingsplan.md` · Kontext: `uebergabe-bierpong.md`.
 
 ## Stack
 
