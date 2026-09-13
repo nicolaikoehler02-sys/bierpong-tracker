@@ -71,7 +71,9 @@ export function CameraRemote() {
       overlayRef.current,
       draft.cups,
       draft.radius,
-      camera?.status ? { cups: camera.status.readings, hits: [] } : null,
+      camera?.status
+        ? { cups: camera.status.readings, hits: [], sceneChanged: camera.status.sceneChanged ?? false }
+        : null,
     );
   }, [draft, camera]);
 
@@ -114,9 +116,11 @@ export function CameraRemote() {
         ? "iPhone nicht verbunden. Auf dem iPhone „Kamera“ öffnen."
         : !status?.running
           ? "iPhone verbunden, Kamera aus. Am iPhone einmal „Kamera starten“ tippen."
-          : `${status.fps} Analysen pro Sekunde · Referenz ${status.hasReference ? "vorhanden" : "fehlt"}${
-              status.referenceMessage ? ` · ${status.referenceMessage}` : ""
-            }`;
+          : status.trackState === "muted" || status.trackState === "ended"
+            ? "Kamera am iPhone unterbrochen (Display gesperrt?). Am iPhone „Kamera neu starten“ tippen."
+            : `${status.fps} Analysen pro Sekunde · Referenz ${status.hasReference ? "vorhanden" : "fehlt"}${
+                status.sceneChanged ? " · ⚠ Bild stark verändert, Leer-Referenz neu aufnehmen" : ""
+              }${status.referenceMessage && !status.sceneChanged ? ` · ${status.referenceMessage}` : ""}`;
 
   return (
     <Card size="sm">
@@ -248,6 +252,7 @@ export function CameraRemote() {
                   format={percent}
                   onChange={(handThreshold) => change({ handThreshold })}
                 />
+                <p className="text-xs text-muted-foreground">Hand-Sperre: höherer Wert = unempfindlicher. Standard 25 %.</p>
                 {status && status.readings.length > 0 && (
                   <ul className="space-y-0.5 text-xs tabular-nums text-muted-foreground">
                     {status.readings.map((reading, index) => (

@@ -4,6 +4,7 @@ const COLOR_IDLE = "rgba(255, 255, 255, 0.85)";
 const COLOR_PENDING = "#facc15";
 const COLOR_PRESENT = "#22c55e";
 const COLOR_BLOCKED = "#60a5fa";
+const COLOR_SCENE = "#fb923c";
 
 /** Zeichnet Becherkreise, Nummern und Füllstand über das Videobild. */
 export function drawOverlay(
@@ -33,8 +34,10 @@ export function drawOverlay(
     const state = result?.cups[index];
     const x = cup.x * width;
     const y = cup.y * height;
-    const color = state?.blocked
-      ? COLOR_BLOCKED
+    const color = result?.sceneChanged
+      ? COLOR_SCENE
+      : state?.blocked
+        ? COLOR_BLOCKED
       : state?.present
         ? COLOR_PRESENT
         : state?.pending
@@ -57,7 +60,16 @@ export function drawOverlay(
 
     if (state) {
       ctx.font = `${11 * dpr}px system-ui, sans-serif`;
-      ctx.fillText(state.blocked ? "Hand" : `${Math.round(state.level * 100)} %`, x, y + r + 10 * dpr);
+      const label = result?.sceneChanged ? "?" : state.blocked ? "Hand" : `${Math.round(state.level * 100)} %`;
+      ctx.fillText(label, x, y + r + 10 * dpr);
     }
   });
+
+  if (result?.sceneChanged) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+    ctx.fillRect(0, 0, width, 30 * dpr);
+    ctx.fillStyle = COLOR_SCENE;
+    ctx.font = `600 ${13 * dpr}px system-ui, sans-serif`;
+    ctx.fillText("Bild stark verändert – Leer-Referenz neu aufnehmen", width / 2, 15 * dpr);
+  }
 }

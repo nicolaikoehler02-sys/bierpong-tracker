@@ -41,7 +41,15 @@ export interface CupState {
 export interface AnalysisResult {
   cups: CupState[];
   hits: HitEvent[];
+  /** Ganzes Bild weicht stark von der Referenz ab — dann wird nichts gezählt */
+  sceneChanged: boolean;
 }
+
+/** Darunter gilt das Bild als schwarz (mittlere Helligkeit 0–255). */
+const DARK_LUMA = 12;
+/** Helligkeit gegenüber der Referenz außerhalb dieses Bereichs = Licht oder Kamera hat sich verändert. */
+const SCENE_RATIO_MIN = 0.55;
+const SCENE_RATIO_MAX = 1.8;
 
 /**
  * Ausgewertet wird die ganze Becheröffnung, damit auch Bälle am Rand vollständig zählen.
@@ -117,7 +125,9 @@ export class CupDetector {
     const outer = cupRadius * RING_OUTER_FACTOR;
     const outer2 = outer ** 2;
 
-    this.rois = cups.map((cup) => {
+    const centers = cups.map((cup) => ({ x: cup.x * width, y: cup.y * height }));
+
+    this.rois = cups.map((cup, index) => {
       const cx = cup.x * width;
       const cy = cup.y * height;
       const x0 = Math.max(0, Math.floor(cx - outer));
@@ -138,7 +148,11 @@ export class CupDetector {
           if (d2 <= inner2) {
             zones[y * roiWidth + x] = ZONE_INNER;
             innerPixels++;
-          } else if (d2 >= ringInner2 && d2 <= outer2) {
+          } else if (
+            d2 >= ringInner2 &&
+            d2 <= outer2 &&
+            !insideOtherCup(centers, index, x0 + x + 0.5, y0 + y + 0.5, ringInner2)
+          ) {
             zones[y * roiWidth + x] = ZONE_RING;
             ringPixels++;
           }
@@ -190,9 +204,12 @@ export class CupDetector {
 
   analyze(frame: ImageData, params: DetectionParams, now: number): AnalysisResult {
     const data = frame.data;
+    const luma = meanLuma(frame);
+    const ratio = this.referenceLuma > 0 ? luma / Math.max(this.referenceLuma, 1) : 1;
+    const sceneChanged =
+      this.referenceLuma > 0 && (luma < DARK_LUMA || ratio < SCENE_RATIO_MIN || ratio > SCENE_RATIO_MAX);
     // Gleicht die Belichtungsautomatik grob aus: aktuelles Bild auf die Helligkeit der Referenz skalieren.
-    const gain =
-      this.referenceLuma > 0 ? clamp(this.referenceLuma / Math.max(meanLuma(frame), 1), 0.7, 1.4) : 1;
+    const gain = this.referenceLuma > 0 ? clamp(this.referenceLuma / Math.max(luma, 1), 0.7, 1.4) : 1;
     const armed = this.hasReference;
     const hits: HitEvent[] = [];
 
@@ -237,7 +254,8 @@ export class CupDetector {
       const edgeChange = reference && roi.ringPixels ? ringChanged / roi.ringPixels : 0;
       const presence = this.presence[index];
       if (edgeChange >= params.handThreshold) presence.blockedUntil = now + BLOCK_HOLD_MS;
-      const blocked = now < presence.blockedUntil;
+      // Bei stark verändertem Gesamtbild ebenfalls einfrieren — sonst entstehen Fehltreffer.
+      const blocked = sceneChanged || now < presence.blockedUntil;
 
       let present = false;
       let pending = false;
@@ -278,7 +296,7 @@ export class CupDetector {
       };
     });
 
-    return { cups, hits };
+    return { cups, hits, sceneChanged };
   }
 
   private resetPresence(): void {
@@ -290,6 +308,26 @@ export class CupDetector {
       blockedUntil: 0,
     }));
   }
+}
+
+/**
+ * Ring-Pixel, die in einem Nachbarbecher liegen, gehören nicht zum Ring:
+ * Dort landen Bälle und spiegelt Wasser — das soll keine Hand-Sperre auslösen.
+ */
+function insideOtherCup(
+  centers: Array<{ x: number; y: number }>,
+  self: number,
+  px: number,
+  py: number,
+  radius2: number,
+): boolean {
+  for (let i = 0; i < centers.length; i++) {
+    if (i === self) continue;
+    const dx = px - centers[i].x;
+    const dy = py - centers[i].y;
+    if (dx * dx + dy * dy <= radius2) return true;
+  }
+  return false;
 }
 
 /** Größe des größten zusammenhängenden Flecks einer Pixelklasse (8er-Nachbarschaft). */

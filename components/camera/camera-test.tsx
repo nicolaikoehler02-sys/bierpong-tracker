@@ -15,11 +15,11 @@ import {
   capturePreview,
   describeTrack,
   deviceLabel,
-  lockTrack,
-  lockWhiteBalance,
+  manualLocks,
   speak,
   stopMedia,
   supportsTorch,
+  whiteBalanceLock,
   zoomRange,
 } from "@/lib/camera";
 import type { CameraMode, CameraSettings, CameraStatus, CameraSyncResponse } from "@/lib/camera-types";
@@ -34,6 +34,8 @@ const PREVIEW_WIDTH = 360;
 const ANALYSIS_INTERVAL_MS = 66;
 const UI_INTERVAL_MS = 250;
 const SYNC_MS = 1500;
+/** Nach dem Festsetzen des Weißabgleichs kurz warten, bis die Kamera nachgeregelt hat. */
+const REFERENCE_SETTLE_MS = 600;
 const FRAMES_OFF = 10;
 const MAX_ZOOM = 3;
 const STORAGE_KEY = "bierpong-kamera-v2";
@@ -118,6 +120,8 @@ export function CameraTest() {
   const [sendHits, setSendHits] = useState(true);
   const [sentCount, setSentCount] = useState(0);
   const [sendFailures, setSendFailures] = useState(0);
+  const [sceneChanged, setSceneChanged] = useState(false);
+  const [trackState, setTrackState] = useState<CameraStatus["trackState"]>("none");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -131,6 +135,8 @@ export function CameraTest() {
   /** Zuletzt übernommene Fernbedienungs-Version; null = noch nicht synchronisiert */
   const appliedVersionRef = useRef<number | null>(null);
   const lastCommandIdRef = useRef<number | null>(null);
+  /** Aktueller Wunschzustand der Kamera (Zoom, Licht, Sperren) — wird immer komplett gesetzt. */
+  const constraintsRef = useRef<Record<string, unknown>>({});
   const liveRef = useRef({
     cups,
     radius,
@@ -162,6 +168,8 @@ export function CameraTest() {
     torchAvailable: false,
     readings: [],
     referenceMessage: null,
+    sceneChanged: false,
+    trackState: "none",
   });
   const actionsRef = useRef<{
     applyRemoteSettings: (settings: CameraSettings) => void;
@@ -196,8 +204,10 @@ export function CameraTest() {
       torchAvailable,
       readings,
       referenceMessage,
+      sceneChanged,
+      trackState,
     };
-  }, [status, source, fps, hasReference, zoomCapability, torchAvailable, readings, referenceMessage]);
+  }, [status, source, fps, hasReference, zoomCapability, torchAvailable, readings, referenceMessage, sceneChanged, trackState]);
 
   // Die Sync-Schleife braucht immer die aktuellen Handler (sie lesen Zustand wie `source`).
   useEffect(() => {
@@ -282,6 +292,7 @@ export function CameraTest() {
       frames++;
       if (now - lastUi >= UI_INTERVAL_MS) {
         setReadings(result.cups);
+        setSceneChanged(result.sceneChanged);
         setFps(Math.round((frames * 1000) / (now - fpsWindowStart)));
         lastUi = now;
         frames = 0;
@@ -373,6 +384,16 @@ export function CameraTest() {
 
   const currentTrack = () => streamRef.current?.getVideoTracks()[0] ?? null;
 
+  /** Ergänzt den Wunschzustand der Kamera und setzt ihn komplett (Safari verwirft sonst frühere Werte). */
+  async function updateConstraints(patch: Record<string, unknown>): Promise<boolean> {
+    const track = currentTrack();
+    if (!track) return false;
+    const next = { ...constraintsRef.current, ...patch };
+    const applied = await applyAdvanced(track, next);
+    if (applied) constraintsRef.current = next;
+    return applied;
+  }
+
   /** Bild hat sich verändert (Zoom, Licht, Kamera) — Referenz passt nicht mehr. */
   function invalidateReference() {
     resetRequestedRef.current = true;
@@ -413,11 +434,16 @@ export function CameraTest() {
       await video.play();
 
       const track = stream.getVideoTracks()[0];
+      constraintsRef.current = {};
+      setTrackState(track.muted ? "muted" : "live");
+      track.onmute = () => setTrackState("muted");
+      track.onunmute = () => setTrackState("live");
+      track.onended = () => setTrackState("ended");
       const range = zoomRange(track);
       setZoomCapability(range);
       if (range) {
         const target = clamp(zoom, range.min, Math.min(range.max, MAX_ZOOM));
-        if (await applyAdvanced(track, { zoom: target })) setZoom(target);
+        if (await updateConstraints({ zoom: target })) setZoom(target);
       }
       setTorchAvailable(supportsTorch(track));
       setTorch(false);
@@ -450,6 +476,7 @@ export function CameraTest() {
     void video.play();
 
     activeRef.current = true;
+    setTrackState("none");
     setCapabilities([]);
     setDevices([]);
     setZoomCapability(null);
@@ -475,14 +502,11 @@ export function CameraTest() {
   function changeZoom(next: number) {
     setZoom(next);
     invalidateReference();
-    const track = currentTrack();
-    if (track) void applyAdvanced(track, { zoom: next });
+    void updateConstraints({ zoom: next });
   }
 
   async function toggleTorch(next: boolean) {
-    const track = currentTrack();
-    if (!track) return;
-    if (await applyAdvanced(track, { torch: next })) {
+    if (await updateConstraints({ torch: next })) {
       setTorch(next);
       invalidateReference();
     }
@@ -508,11 +532,13 @@ export function CameraTest() {
     const track = source === "camera" ? currentTrack() : null;
     let message = "Referenz aufgenommen.";
     if (track) {
-      const locked = await lockWhiteBalance(track);
+      const lock = whiteBalanceLock(track);
+      const locked = lock ? await updateConstraints(lock) : false;
       message = locked
         ? "Referenz aufgenommen, Weißabgleich festgesetzt."
         : "Referenz aufgenommen. Weißabgleich ließ sich nicht festsetzen.";
       setCapabilities(describeTrack(track));
+      await new Promise((resolve) => setTimeout(resolve, REFERENCE_SETTLE_MS));
     }
     referenceRequestedRef.current = true;
     setReferenceMessage(message);
@@ -530,7 +556,13 @@ export function CameraTest() {
   async function handleLock() {
     const track = currentTrack();
     if (!track) return;
-    setLockMessage(await lockTrack(track));
+    const { constraints, labels } = manualLocks(track);
+    if (!labels.length) {
+      setLockMessage("Dieses Gerät erlaubt im Browser keine Sperre.");
+      return;
+    }
+    const applied = await updateConstraints(constraints);
+    setLockMessage(applied ? `Gesperrt: ${labels.join(", ")}` : "Sperren fehlgeschlagen.");
     setCapabilities(describeTrack(track));
   }
 
@@ -558,6 +590,17 @@ export function CameraTest() {
           className={`absolute inset-0 h-full w-full touch-none ${mode === "calibrate" ? "cursor-crosshair" : ""}`}
         />
       </div>
+
+      {(trackState === "muted" || trackState === "ended") && (
+        <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-sm text-amber-400">
+          Kamera unterbrochen (z. B. Display gesperrt oder andere App). Bitte „Kamera neu starten“.
+        </p>
+      )}
+      {trackState !== "muted" && trackState !== "ended" && sceneChanged && (
+        <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-sm text-amber-400">
+          Das ganze Bild hat sich stark verändert (Licht, Zoom oder Kamera bewegt?). Leer-Referenz neu aufnehmen.
+        </p>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card size="sm" className={activeBlock ? "ring-2 ring-emerald-500/40" : undefined}>
@@ -719,6 +762,7 @@ export function CameraTest() {
               format={percent}
               onChange={setHandThreshold}
             />
+            <p className="text-xs text-muted-foreground">Hand-Sperre: höherer Wert = unempfindlicher. Standard 25 %.</p>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={voice} onChange={(event) => setVoice(event.target.checked)} />
               Treffer ansagen

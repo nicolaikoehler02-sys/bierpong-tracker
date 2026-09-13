@@ -83,38 +83,36 @@ function supportsManual(track: MediaStreamTrack, key: string): boolean {
   return Array.isArray(modes) && modes.includes("manual");
 }
 
-export async function applyAdvanced(track: MediaStreamTrack, constraint: Record<string, unknown>): Promise<boolean> {
+/**
+ * Setzt Kamera-Einstellungen. Achtung: Safari ersetzt bei jedem Aufruf den kompletten `advanced`-Satz —
+ * wer nur { whiteBalanceMode } setzt, verliert Licht und Zoom. Deshalb immer den vollständigen Wunschzustand übergeben.
+ */
+export async function applyAdvanced(track: MediaStreamTrack, constraints: Record<string, unknown>): Promise<boolean> {
   try {
-    await track.applyConstraints({ advanced: [constraint] } as MediaTrackConstraints);
+    await track.applyConstraints({ advanced: [constraints] } as MediaTrackConstraints);
     return true;
   } catch {
     return false;
   }
 }
 
-/** Setzt den Weißabgleich fest, damit Farben nicht mit dem Licht wandern. */
-export async function lockWhiteBalance(track: MediaStreamTrack): Promise<boolean> {
-  if (!supportsManual(track, "whiteBalanceMode")) return false;
-  return applyAdvanced(track, { whiteBalanceMode: "manual" });
+/** Einstellung für festen Weißabgleich, falls das Gerät es erlaubt. */
+export function whiteBalanceLock(track: MediaStreamTrack): Record<string, string> | null {
+  return supportsManual(track, "whiteBalanceMode") ? { whiteBalanceMode: "manual" } : null;
 }
 
-/** Versucht Belichtung, Weißabgleich und Fokus festzusetzen. */
-export async function lockTrack(track: MediaStreamTrack): Promise<string> {
+/** Einstellungen, um Belichtung, Weißabgleich und Fokus festzusetzen — soweit das Gerät es erlaubt. */
+export function manualLocks(track: MediaStreamTrack): { constraints: Record<string, string>; labels: string[] } {
   const candidates: Array<[key: string, label: string]> = [
     ["exposureMode", "Belichtung"],
     ["whiteBalanceMode", "Weißabgleich"],
     ["focusMode", "Fokus"],
   ];
   const supported = candidates.filter(([key]) => supportsManual(track, key));
-  if (!supported.length) return "Dieses Gerät erlaubt im Browser keine Sperre.";
-
-  const advanced = supported.map(([key]) => ({ [key]: "manual" }));
-  try {
-    await track.applyConstraints({ advanced } as MediaTrackConstraints);
-    return `Gesperrt: ${supported.map(([, label]) => label).join(", ")}`;
-  } catch {
-    return "Sperren fehlgeschlagen.";
-  }
+  return {
+    constraints: Object.fromEntries(supported.map(([key]) => [key, "manual"])),
+    labels: supported.map(([, label]) => label),
+  };
 }
 
 export function cameraErrorMessage(error: unknown): string {

@@ -28,6 +28,10 @@ export interface CameraStatus {
   torchAvailable: boolean;
   readings: CupState[];
   referenceMessage: string | null;
+  /** Ganzes Bild weicht stark von der Referenz ab (Licht aus, schwarzes Bild, Kamera bewegt) */
+  sceneChanged: boolean;
+  /** Zustand des Kamera-Streams; iOS schaltet ihn z. B. beim Sperren des Displays stumm */
+  trackState: "none" | "live" | "muted" | "ended";
 }
 
 export type CameraCommandType = "capture_reference";
