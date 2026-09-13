@@ -2,15 +2,17 @@ import Link from "next/link";
 
 const navLinks = [
   { href: "/", label: "Start" },
+  { href: "/training", label: "Training" },
+  { href: "/kamera", label: "Kamera" },
+  { href: "/statistik", label: "Statistik" },
   { href: "/plan", label: "Plan" },
   { href: "/drills", label: "Drills" },
-  { href: "/kamera", label: "Kamera" },
 ];
 
 export function PageHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <header className="space-y-4">
-      <nav className="flex gap-1 text-sm">
+      <nav className="flex flex-wrap gap-1 text-sm">
         {navLinks.map((link) => (
           <Link
             key={link.href}

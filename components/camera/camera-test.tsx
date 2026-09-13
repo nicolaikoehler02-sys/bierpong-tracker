@@ -18,10 +18,14 @@ import {
   supportsTorch,
   zoomRange,
 } from "@/lib/camera";
+import { postEvent } from "@/lib/api-client";
 import { type ColorParams, defaultColorParams } from "@/lib/detection/color";
 import { type Cup, type CupState, CupDetector, type DetectionParams, type HitEvent } from "@/lib/detection/detector";
 import { drawOverlay } from "@/lib/detection/overlay";
+import { getDrill } from "@/lib/drills";
+import type { ActiveBlockInfo } from "@/lib/live-types";
 
+const ACTIVE_POLL_MS = 2000;
 const WORK_WIDTH = 320;
 const ANALYSIS_INTERVAL_MS = 66;
 const UI_INTERVAL_MS = 250;
@@ -105,6 +109,11 @@ export function CameraTest() {
   const [events, setEvents] = useState<HitEvent[]>([]);
   const [fps, setFps] = useState(0);
   const [voice, setVoice] = useState(true);
+  const [activeBlock, setActiveBlock] = useState<ActiveBlockInfo | null>(null);
+  const [linkStatus, setLinkStatus] = useState<"unknown" | "ok" | "offline">("unknown");
+  const [sendHits, setSendHits] = useState(true);
+  const [sentCount, setSentCount] = useState(0);
+  const [sendFailures, setSendFailures] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -119,6 +128,8 @@ export function CameraTest() {
     radius,
     mode,
     voice,
+    blockId: null as string | null,
+    sendHits,
     params: { threshold, framesOn, framesOff: FRAMES_OFF, handThreshold, color } as DetectionParams,
   });
 
@@ -129,9 +140,11 @@ export function CameraTest() {
       radius,
       mode,
       voice,
+      blockId: activeBlock?.id ?? null,
+      sendHits,
       params: { threshold, framesOn, framesOff: FRAMES_OFF, handThreshold, color },
     };
-  }, [cups, radius, mode, voice, threshold, framesOn, handThreshold, color]);
+  }, [cups, radius, mode, voice, activeBlock, sendHits, threshold, framesOn, handThreshold, color]);
 
   useEffect(() => {
     try {
@@ -186,6 +199,18 @@ export function CameraTest() {
       const result = detector.analyze(frame, live.params, Date.now());
       if (result.hits.length && live.mode === "detect") {
         setEvents((previous) => [...[...result.hits].reverse(), ...previous].slice(0, 30));
+        if (live.sendHits && live.blockId) {
+          for (const hit of result.hits) {
+            void postEvent({
+              blockId: live.blockId,
+              kind: "hit",
+              source: "camera",
+              cup: hit.cup,
+              ballColor: hit.color,
+              confidence: hit.confidence,
+            }).then((sent) => (sent ? setSentCount((count) => count + 1) : setSendFailures((count) => count + 1)));
+          }
+        }
         if (live.voice) {
           for (const hit of result.hits) {
             speak(hit.color === "orange" ? `Treffer orange, Becher ${hit.cup + 1}` : `Treffer Becher ${hit.cup + 1}`);
@@ -219,6 +244,31 @@ export function CameraTest() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       stopMedia(streamRef, objectUrlRef);
       void wakeLock.current?.release();
+    };
+  }, []);
+
+  // Aktiven Drill-Block vom Server holen; läuft die Kamera, meldet sie sich dabei als verbunden.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/active?camera=${activeRef.current ? 1 : 0}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = (await response.json()) as { block: ActiveBlockInfo | null };
+        if (!cancelled) {
+          setActiveBlock(data.block);
+          setLinkStatus("ok");
+        }
+      } catch {
+        if (!cancelled) setLinkStatus("offline");
+      }
+      if (!cancelled) timer = setTimeout(poll, ACTIVE_POLL_MS);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
     };
   }, []);
 
@@ -395,6 +445,32 @@ export function CameraTest() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <Card size="sm" className={activeBlock ? "ring-2 ring-emerald-500/40" : undefined}>
+          <CardHeader>
+            <CardTitle>Dashboard</CardTitle>
+            <CardDescription>
+              {linkStatus === "offline"
+                ? "Keine Verbindung zum Server."
+                : activeBlock
+                  ? `Aktiver Block: D${activeBlock.drillId} ${getDrill(activeBlock.drillId).short}${
+                      activeBlock.playerName ? ` · ${activeBlock.playerName}` : ""
+                    }`
+                  : "Kein aktiver Block. Im Dashboard unter „Training“ starten."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={sendHits} onChange={(event) => setSendHits(event.target.checked)} />
+              Treffer an Dashboard senden
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Gesendet: {sentCount}
+              {sendFailures > 0 && <span className="text-destructive"> · fehlgeschlagen: {sendFailures}</span>}
+              {mode !== "detect" && " · Treffer zählen nur im Modus „Erkennen“"}
+            </p>
+          </CardContent>
+        </Card>
+
         <Card size="sm">
           <CardHeader>
             <CardTitle>Quelle</CardTitle>

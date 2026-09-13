@@ -8,8 +8,8 @@ import { TOURNAMENT_DATE, nextWeekAfter, weekForDate } from "@/lib/plan";
 
 const phases = [
   { name: "Phase 0 · Setup", status: "erledigt", detail: "Drills, Plan, Datenbank, Deploy" },
-  { name: "Phase 1 · Kamera-Test", status: "läuft", detail: "Becher antippen, Ball-im-Becher-Erkennung" },
-  { name: "Phase 2 · Verbinden", status: "geplant", detail: "Live-Dashboard, Drill-Modi, Korrektur-Knopf" },
+  { name: "Phase 1 · Kamera-Test", status: "erledigt", detail: "Becher antippen, Ball-im-Becher-Erkennung" },
+  { name: "Phase 2 · Verbinden", status: "läuft", detail: "Live-Dashboard, Drill-Modi, Korrektur-Knopf" },
   { name: "Phase 3 · Partner & Analyse", status: "geplant", detail: "Ballfarben, Heatmap, Rollen" },
 ];
 
@@ -25,6 +25,20 @@ export default async function Home() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6">
       <PageHeader title="Bierpong-Tracker" subtitle="Turniervorbereitung · Samstag, 17. Oktober" />
+
+      <div className="grid grid-cols-2 gap-3">
+        <Link
+          href="/training"
+          className="rounded-xl bg-primary px-4 py-3 text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          <span className="block font-medium">Training</span>
+          <span className="text-xs opacity-70">Dashboard am Laptop</span>
+        </Link>
+        <Link href="/kamera" className="rounded-xl px-4 py-3 ring-1 ring-foreground/15 transition-colors hover:bg-muted">
+          <span className="block font-medium">Kamera</span>
+          <span className="text-xs text-muted-foreground">iPhone über den Bechern</span>
+        </Link>
+      </div>
 
       <Card>
         <CardContent className="flex items-baseline gap-3">

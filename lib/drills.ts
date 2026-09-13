@@ -13,6 +13,19 @@ export type Formation =
   | "einzelbecher"
   | "mittelbecher";
 
+export const formationLabels: Record<Formation, string> = {
+  "pyramide-10": "10er-Pyramide",
+  "pyramide-6": "6er-Pyramide",
+  "raute-4": "4er-Raute",
+  "pyramide-3": "3er-Pyramide",
+  einzelbecher: "Einzelbecher",
+  mittelbecher: "Mittelbecher",
+};
+
+export function formationLabel(formation: string | null): string | null {
+  return formation && formation in formationLabels ? formationLabels[formation as Formation] : null;
+}
+
 export type VolumeUnit = "Würfe" | "Runden" | "Versuche";
 
 export interface DrillSection {

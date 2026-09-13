@@ -37,6 +37,8 @@ export const drillBlocks = pgTable("drill_blocks", {
   condition: text("condition"),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   endedAt: timestamp("ended_at", { withTimezone: true }),
+  /** Zuletzt hat sich die Kamera-Seite für diesen Block gemeldet */
+  cameraSeenAt: timestamp("camera_seen_at", { withTimezone: true }),
 });
 
 /** Ein einzelnes Ereignis: Treffer, Fehlwurf-Tap, Korrektur … */
@@ -55,5 +57,7 @@ export const events = pgTable("events", {
   snapshotUrl: text("snapshot_url"),
   /** Bei kind = "correction": das korrigierte Ereignis */
   correctsEventId: uuid("corrects_event_id"),
+  /** Per Korrektur-Knopf verworfen — zählt nicht mehr */
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

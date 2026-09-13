@@ -43,6 +43,39 @@
 
 ---
 
+## Option: Seitenkamera am Laptop (Phase 4)
+
+*Idee vom 13.09.2026 · ersetzt die experimentelle Ball-Wurferkennung · Voraussetzung: Phase 2 steht*
+
+Der Laptop am Spielfeldrand zeigt das Dashboard und nutzt zusätzlich eine Kamera mit Blick von der Seite auf den ganzen Tisch.
+
+| | iPhone von oben | Laptop von der Seite |
+|---|---|---|
+| Welcher Becher getroffen | ✅ | ❌ Becher verdecken sich |
+| Wann geworfen wurde | ❌ | ✅ Wurfbewegung |
+| Fehlwürfe | ❌ | ✅ Wurf ohne Treffer |
+| Wer geworfen hat | nur über Ballfarbe | ✅ linker/rechter Spieler |
+| Aufsetzer echt? | ❌ | ✅ Tischkontakt |
+| Gefangene Rückroller (Drill 12) | ❌ | ✅ |
+| Technik (Ellbogen, Bogen) | ❌ | ✅ Instant Replay |
+
+**Ansatz:** Nicht den Ball im Flug verfolgen (bei 30 fps nur ein Strich), sondern die **Wurfbewegung per Pose-Erkennung** im Browser (z. B. MediaPipe Pose).
+
+**Zusammenführung auf dem Server:**
+
+```
+iPhone  →  „Treffer, Becher 3, 14:36:51.2"
+Laptop  →  „Wurf, linker Spieler, 14:36:50.4"
+Wurf + Treffer innerhalb ~2 s  →  Treffer
+Wurf ohne Treffer              →  Fehlwurf
+```
+
+**Schwierigkeiten:** gemeinsame Uhr über Serverzeit · Fehlerkennungen (Gesten, Probewürfe, Leute im Bild) · Bildausschnitt: eingebaute Webcam oft zu eng/dunkel, besser externe USB-Weitwinkel-Webcam mit 60 fps · deutlich mehr Aufwand als die Treffererkennung.
+
+**Erster Machbarkeitstest (ein Abend):** Laptop-Seite mit Live-Skelett, die bei jedem erkannten Wurf aufblinkt.
+
+---
+
 ## Die Drills: alle 14 als Daten, 5 Drill-Typen als Logik
 
 Alle Drills und der komplette 5-Wochen-Plan werden als **Konfiguration** angelegt. Die App weiß also: „Heute ist W2 S1 → Drill 2 (50), Drill 7 (30), Drill 3 (30)" und startet den nächsten Block mit einem Tap.
@@ -115,7 +148,7 @@ Programmiert werden müssen nur **fünf Drill-Typen**:
 | **1 — Kamera-Test** | 15.–20.09. | Kamera-Seite fürs iPhone: Kamera-Fähigkeiten anzeigen, Becher antippen, Referenzbild, Ball-im-Becher-Erkennung mit Live-Overlay und Sprachausgabe | Küchentisch-Test bestanden → **Entscheidung Safari reicht / Ausweichweg** |
 | **2 — Verbinden** | 21.–27.09. | Events → Datenbank · Live-Dashboard auf dem zweiten Gerät · Drill-Typen A und C · Korrektur-Knopf + Standbilder · Aufsetzer-Seite | Kamera im echten Training ab W2 |
 | **3 — Partner & Analyse** | 28.09.–04.10. | Zwei Ballfarben, Drill-Typ B · Heatmap · Rollen-Seite · Same-Cup vs. p² | Rollenentscheidung nach Zahlen |
-| **4 — Extras (optional)** | bis 04.10. | Instant Replay · Druck-Soundboard · experimentelle Wurferkennung · Session-Zusammenfassung per Telegram · Wochen-Kommentar per Claude API | Spaß |
+| **4 — Extras (optional)** | bis 04.10. | **Seitenkamera am Laptop** (siehe Option unten) · Instant Replay · Druck-Soundboard · Session-Zusammenfassung per Telegram · Wochen-Kommentar per Claude API | Spaß |
 | **Freeze** | ab 05.10. | Keine neuen Features, nur noch benutzen und Bugs fixen | Peak- und Taper-Phase ungestört |
 
 **Hinweis:** Die Baseline aus Woche 1 erfasst der Tracker nicht. Echte Daten gibt es frühestens ab W2. Für die Aufsetzer-Entscheidung am 27.09. muss Phase 1 also bis ca. 20.09. stehen, sonst basiert sie auf weniger Daten.
@@ -136,5 +169,5 @@ Programmiert werden müssen nur **fünf Drill-Typen**:
 
 - **Kamera-Einstellungen im Safari** evtl. zu eingeschränkt → wird in Phase 1 gemessen, Ausweichwege siehe oben.
 - **Hitze und Akku** beim iPhone in langen Sessions.
-- **Fehlwürfe** werden (außer mit experimenteller Wurferkennung) nicht einzeln erkannt → Wurffolgen gibt es nur bei Drill-Typ C.
+- **Fehlwürfe** werden ohne Seitenkamera nicht einzeln erkannt → Wurffolgen gibt es bis dahin nur bei Drill-Typ C.
 - **Aufsetzer erkennen** ist mit einer Kamera von oben nicht möglich → kommt aus dem Drill-Modus.
