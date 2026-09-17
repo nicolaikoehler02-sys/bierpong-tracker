@@ -20,6 +20,10 @@
 # production
 /build
 
+# Aufnahmen und Auswertungen (ADR 0002: Videos liegen nicht im Repo)
+/analyse/
+/aufnahmen/
+
 # misc
 .DS_Store
 *.pem
