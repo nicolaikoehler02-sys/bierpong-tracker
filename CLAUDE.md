@@ -12,6 +12,8 @@ Next.js 16 (App Router, ohne `src/`) · React 19 · TypeScript strict · Tailwin
 - `lib/drills.ts` — Drill-Katalog, Drill-Typen, Zielwerte
 - `lib/plan.ts` — 5-Wochen-Plan als Daten
 - `db/schema.ts` — Datenbankschema, `db/index.ts` — lazy DB-Client (`getDb()`)
+- `lib/detection/` — Erkennung der Deckenkamera (Treffer im Becher)
+- `lib/flight/` — Erkennungskern der Seitenkamera (Wurfanalyse), `scripts/` — Auswertung von Aufnahmen
 
 ## Regeln
 
@@ -23,12 +25,26 @@ Next.js 16 (App Router, ohne `src/`) · React 19 · TypeScript strict · Tailwin
 - GitHub-Account: `nicolaikoehler02-sys` (privat) — vor Push `gh auth status` prüfen.
 - Keine Secrets in Dateien außer `.env.local`.
 
+## Agent skills
+
+### Issue tracker
+
+Issues und Specs liegen als GitHub Issues in `nicolaikoehler02-sys/bierpong-tracker` (über die `gh` CLI). Siehe `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` und `docs/adr/` im Wurzelverzeichnis. Siehe `docs/agents/domain.md`.
+
 ## Befehle
 
 ```bash
 npm run dev          # lokal
 npm run build        # Build prüfen
 npm run lint
+npm run test         # vitest (Erkennungskern)
+
+npm run testvideo                 # künstliche Aufnahme nach analyse/testvideo/
+npm run analyse -- <videodatei>   # Aufnahme auswerten: Overlay-Video, CSV, JSON
 npm run db:generate  # Migration aus Schema erzeugen
 npm run db:migrate   # Migration anwenden (nur nach OK)
 ```
