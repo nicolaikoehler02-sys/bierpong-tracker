@@ -109,7 +109,8 @@ async function main(): Promise<void> {
   const summary = summarize(results);
   console.log("");
   console.log(`Bilder ausgewertet:      ${summary.frames}`);
-  console.log(`Veränderungen gefunden:  ${summary.detected}`);
+  console.log(`Bilder Lernphase:        ${summary.learningFrames}`);
+  console.log(`Ball-Kandidaten:         ${summary.candidates} in ${summary.framesWithCandidates} Bildern`);
   console.log(`Szenenwechsel:           ${summary.sceneChanges}`);
   console.log("");
   console.log("Geschrieben:");

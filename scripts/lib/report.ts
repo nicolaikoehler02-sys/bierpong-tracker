@@ -4,12 +4,16 @@ import type { FlightSettings, FrameResult } from "../../lib/flight/index.ts";
  * Die Tabelle für den Menschen: Semikolon als Trennzeichen, damit Excel sie
  * ohne Import-Dialog öffnet; Zahlen mit Punkt, damit Auswertungen sie direkt
  * weiterverarbeiten können.
+ *
+ * Je Kandidat eine Zeile. Bilder ohne Kandidaten bekommen trotzdem eine Zeile,
+ * damit die Aufnahme in der Tabelle lückenlos ist.
  */
 const SEPARATOR = ";";
 const COLUMNS = [
   "bild",
   "zeit_s",
-  "erkannt",
+  "kandidaten",
+  "nr",
   "x",
   "y",
   "links",
@@ -17,30 +21,44 @@ const COLUMNS = [
   "breite",
   "hoehe",
   "pixel",
+  "laenge",
+  "fuellung",
   "anteil",
   "szenenwechsel",
+  "lernphase",
 ] as const;
 
 export function toCsv(results: readonly FrameResult[]): string {
   const lines = [COLUMNS.join(SEPARATOR)];
   for (const result of results) {
-    const change = result.change;
-    lines.push(
-      [
-        result.index,
-        result.at.toFixed(3),
-        change ? "ja" : "nein",
-        change ? change.x.toFixed(1) : "",
-        change ? change.y.toFixed(1) : "",
-        change ? change.left : "",
-        change ? change.top : "",
-        change ? change.width : "",
-        change ? change.height : "",
-        change ? change.pixels : "",
-        result.changedShare.toFixed(4),
-        result.sceneChanged ? "ja" : "nein",
-      ].join(SEPARATOR),
-    );
+    const head = [result.index, result.at.toFixed(3), result.candidates.length];
+    const tail = [
+      result.changedShare.toFixed(4),
+      result.sceneChanged ? "ja" : "nein",
+      result.learning ? "ja" : "nein",
+    ];
+    if (result.candidates.length === 0) {
+      lines.push([...head, "", "", "", "", "", "", "", "", "", "", ...tail].join(SEPARATOR));
+      continue;
+    }
+    result.candidates.forEach((candidate, nr) => {
+      lines.push(
+        [
+          ...head,
+          nr + 1,
+          candidate.x.toFixed(1),
+          candidate.y.toFixed(1),
+          candidate.left,
+          candidate.top,
+          candidate.width,
+          candidate.height,
+          candidate.pixels,
+          candidate.aspect.toFixed(2),
+          candidate.fill.toFixed(2),
+          ...tail,
+        ].join(SEPARATOR),
+      );
+    });
   }
   return `${lines.join("\r\n")}\r\n`;
 }
@@ -74,14 +92,21 @@ export function toJson(results: readonly FrameResult[], meta: ReportMeta): strin
 
 export interface Summary {
   frames: number;
-  detected: number;
+  /** Bilder mit mindestens einem Ball-Kandidaten */
+  framesWithCandidates: number;
+  /** Ball-Kandidaten über die ganze Aufnahme */
+  candidates: number;
   sceneChanges: number;
+  /** Bilder, in denen der Hintergrund gelernt wurde */
+  learningFrames: number;
 }
 
 export function summarize(results: readonly FrameResult[]): Summary {
   return {
     frames: results.length,
-    detected: results.filter((result) => result.change !== null).length,
+    framesWithCandidates: results.filter((result) => result.candidates.length > 0).length,
+    candidates: results.reduce((sum, result) => sum + result.candidates.length, 0),
     sceneChanges: results.filter((result) => result.sceneChanged).length,
+    learningFrames: results.filter((result) => result.learning).length,
   };
 }

@@ -9,4 +9,4 @@ export { analyzeFlight } from "./detector.ts";
 export { type FlightSettings, defaultFlightSettings } from "./settings.ts";
 export { type Rgb, createFrame, fillDisc, fillRect, strokeRect } from "./frame.ts";
 export { paintOverlay } from "./overlay.ts";
-export type { ChangeBlob, FlightFrame, FrameResult } from "./types.ts";
+export type { BallCandidate, FlightFrame, FrameResult } from "./types.ts";

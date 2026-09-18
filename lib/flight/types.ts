@@ -12,12 +12,18 @@ export interface FlightFrame {
   data: Uint8ClampedArray;
 }
 
-/** Ein zusammenhängender Fleck, der sich gegenüber dem vorherigen Bild verändert hat. */
-export interface ChangeBlob {
-  /** Schwerpunkt in Pixeln des Originalbildes */
+/**
+ * Ein Fleck, der vom gelernten Hintergrund abweicht und nach Größe und Form
+ * als Ball durchgehen könnte.
+ *
+ * Ein Kandidat ist ausdrücklich noch kein Ball: Ob aus ihm ein Wurf wird,
+ * entscheidet erst das Verketten zu Flugbahnen im nächsten Schritt.
+ */
+export interface BallCandidate {
+  /** Schwerpunkt in Bildpunkten des Originalbildes */
   x: number;
   y: number;
-  /** Umschließendes Rechteck in Pixeln des Originalbildes */
+  /** Umschließendes Rechteck in Bildpunkten des Originalbildes */
   left: number;
   top: number;
   width: number;
@@ -26,6 +32,10 @@ export interface ChangeBlob {
   pixels: number;
   /** Anteil des Flecks an allen geprüften Pixeln (0–1) */
   coverage: number;
+  /** Verhältnis von Längs- zu Querseite: 1 = rund, größer = Streifen */
+  aspect: number;
+  /** Anteil des umschließenden Rechtecks, den der Fleck ausfüllt (0–1) */
+  fill: number;
 }
 
 /** Ergebnis für ein einzelnes Bild der Aufnahme. */
@@ -35,16 +45,21 @@ export interface FrameResult {
   /** Zeitpunkt in der Aufnahme in Sekunden */
   at: number;
   /**
-   * Die größte Veränderung gegenüber dem vorherigen Bild.
-   * `null`, wenn nichts Auffälliges gefunden wurde oder das erste Bild
-   * ausgewertet wird — dort gibt es kein Vorbild.
+   * Alle Ball-Kandidaten dieses Bildes, größter zuerst. Mehrere sind erlaubt
+   * und erwünscht — welcher davon zu einem Wurf gehört, entscheidet erst das
+   * Verketten zu Flugbahnen.
    */
-  change: ChangeBlob | null;
-  /** Anteil aller veränderten Pixel am geprüften Bild (0–1) */
+  candidates: BallCandidate[];
+  /** Anteil aller vom Hintergrund abweichenden Pixel am geprüften Bild (0–1) */
   changedShare: number;
   /**
-   * Das ganze Bild hat sich verändert — Licht umgeschaltet, Kamera bewegt.
-   * In diesem Fall wird bewusst keine Veränderung gemeldet.
+   * Das ganze Bild weicht ab — Licht umgeschaltet, Kamera bewegt.
+   * In diesem Fall wird bewusst kein Kandidat gemeldet.
    */
   sceneChanged: boolean;
+  /**
+   * Der Hintergrund wird gerade gelernt: am Anfang der Aufnahme und noch einmal,
+   * wenn sich die Szene dauerhaft verändert hat. Solange wird nichts gemeldet.
+   */
+  learning: boolean;
 }
