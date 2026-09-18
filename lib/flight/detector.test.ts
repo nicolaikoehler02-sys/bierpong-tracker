@@ -347,6 +347,104 @@ describe("analyzeFlight: Würfe aus Flugbahnen", () => {
 });
 
 /**
+ * Eine Bahn mit Aufprall auf der Tischebene: erster Bogen herunter, zweiter
+ * Bogen weiter.
+ *
+ * `impact` ist der Punktindex des Aufpralls und darf gebrochen sein: 8 heißt
+ * „genau auf Bild 8", 8.5 heißt „genau zwischen Bild 8 und Bild 9" — der Fall,
+ * der bei 30 Bildern pro Sekunde der Normalfall ist.
+ */
+function bounceArc(
+  from: number,
+  to: number,
+  count: number,
+  impact: number,
+  base = 150,
+  rise = 60,
+  rebound = 25,
+): Spot[] {
+  const last = count - 1;
+  return Array.from({ length: count }, (_, i) => {
+    const x = from + ((to - from) * i) / last;
+    if (i <= impact) {
+      const u = i / impact;
+      return { x, y: base - 4 * rise * u * (1 - u) };
+    }
+    const w = (i - impact) / (last - impact);
+    return { x, y: base - 4 * rebound * w * (1 - w) };
+  });
+}
+
+describe("analyzeFlight: Aufsetzer durch den ganzen Kern", () => {
+  it("ordnet einen gezeichneten Flugbogen als direkten Wurf ein", () => {
+    const throws = throwsOf(single(arc(20, 220, 14)));
+
+    expect(throws).toHaveLength(1);
+    expect(throws[0].bounce).toBe(false);
+    expect(throws[0].bouncePoint).toBeNull();
+  });
+
+  it("erkennt einen gezeichneten Aufsetzer und bleibt dabei ein einziger Wurf", () => {
+    // Aufprall genau auf Bild 8: Dort kehrt sich die senkrechte Geschwindigkeit
+    // vollständig um. Ohne die gespiegelte Vorhersage beim Verketten würde die
+    // Bahn hier reißen und aus dem Aufsetzer würden zwei zu kurze Bruchstücke.
+    const throws = throwsOf(single(bounceArc(20, 220, 16, 8)));
+
+    expect(throws).toHaveLength(1);
+    const [found] = throws;
+    expect(found.points).toHaveLength(16);
+    expect(found.bounce).toBe(true);
+
+    const bounce = found.bouncePoint;
+    expect(bounce).not.toBeNull();
+    if (!bounce) return;
+    // Aufgekommen auf gut der Hälfte der Strecke, nahe der Tischebene bei y 150.
+    expect(bounce.x).toBeGreaterThan(110);
+    expect(bounce.x).toBeLessThan(150);
+    expect(bounce.y).toBeGreaterThan(135);
+    expect(bounce.at).toBeGreaterThan(found.startedAt);
+    expect(bounce.at).toBeLessThan(found.endedAt);
+    expect(bounce.rise).toBeGreaterThan(10);
+  });
+
+  it("schätzt einen Aufprall zwischen zwei Bildern auch aus gezeichneten Bällen", () => {
+    const throws = throwsOf(single(bounceArc(20, 220, 16, 8.5)));
+
+    expect(throws).toHaveLength(1);
+    const bounce = throws[0].bouncePoint;
+    expect(bounce).not.toBeNull();
+    if (!bounce) return;
+
+    // Der geschätzte Zeitpunkt liegt zwischen den beiden Bildern, nicht auf
+    // einem von beiden.
+    expect(bounce.frameAfter).toBe(bounce.frameBefore + 1);
+    expect(bounce.at).toBeGreaterThan(bounce.frameBefore / 30);
+    expect(bounce.at).toBeLessThan(bounce.frameAfter / 30);
+  });
+
+  it("ordnet denselben Aufsetzer mit und ohne Kalibrierung gleich ein", () => {
+    const frames = single(bounceArc(20, 220, 16, 8));
+    const ohne = analyzeFlight(frames, settings);
+    const mit = analyzeFlight(frames, calibrated);
+
+    // Die Liste der Würfe ist in beiden Fällen dieselbe.
+    expect(ohne.throws).toHaveLength(mit.throws.length);
+    expect(ohne.throws[0].bounce).toBe(true);
+    expect(mit.throws[0].bounce).toBe(true);
+    // Nur der Abstand zur Tischebene fehlt ohne Kalibrierung.
+    expect(ohne.throws[0].bouncePoint?.tableGap).toBeNull();
+    expect(mit.throws[0].bouncePoint?.tableGap).not.toBeNull();
+  });
+
+  it("macht aus einem zurückrollenden Ball auch keinen Aufsetzer", () => {
+    // Er ist schon kein Wurf — und damit gibt es auch nichts einzuordnen.
+    const points = Array.from({ length: 40 }, (_, i) => ({ x: 220 - (i * 200) / 39, y: 150 }));
+
+    expect(throwsOf(single(points))).toEqual([]);
+  });
+});
+
+/**
  * Die Kalibrierung dieser Bildfolgen: eine vordere Tischkante von x 20 bis
  * x 220 — 200 Bildpunkte, die 240 cm bedeuten. Das sind genau 1,2 cm je
  * Bildpunkt, und damit lässt sich jeder erwartete Wert von Hand nachrechnen.

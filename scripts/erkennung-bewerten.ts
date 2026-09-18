@@ -1,7 +1,7 @@
 /**
  * Hält die Erkennung gegen von Hand markierte Würfe und rechnet die Messlatte
  * aus der Spec aus: Anteil erkannter Würfe, Anteil richtig zugeordneter Seite,
- * Fehlalarme je 100 Würfe.
+ * Fehlalarme je 100 Würfe, Anteil erkannter Aufsetzer.
  *
  * Ab hier ist „funktioniert“ eine Zahl und keine Meinung.
  *
@@ -34,9 +34,11 @@ const HELP = `Erkennung gegen Handmarkierungen halten.
 
   npm run bewerten -- <markierungen.json> [Optionen]
 
-Die Markierungsdatei enthält je Wurf einen Zeitpunkt in Sekunden und die Seite:
+Die Markierungsdatei enthält je Wurf einen Zeitpunkt in Sekunden und die Seite,
+freiwillig dazu "bounce" für die Aufsetzer-Quote:
 
-  { "throws": [ { "at": 12.4, "side": "links" }, { "at": 15.9, "side": "rechts" } ] }
+  { "throws": [ { "at": 12.4, "side": "links", "bounce": true },
+                { "at": 15.9, "side": "rechts", "bounce": false } ] }
 
 Verglichen wird gegen eine vorhandene Auswertung aus "npm run analyse". Ohne
 Angabe wird sie unter analyse/<Name der Markierungsdatei>/ gesucht.
@@ -44,7 +46,9 @@ Angabe wird sie unter analyse/<Name der Markierungsdatei>/ gesucht.
 Optionen:
   --auswertung <datei>  JSON-Datei aus "npm run analyse"
   --video <datei>       Stattdessen die Aufnahme direkt auswerten (ohne Overlay-Video).
-                        Langsamer, und es gelten die Standardwerte des Auswertungsskripts.
+                        Langsamer, und es gelten die Standardwerte des Auswertungsskripts
+                        — also ohne Kalibrierung. Die Aufsetzer-Einordnung läuft dann
+                        allein über die Form der Bahn.
   --fenster <sekunden>  Zeitfenster der Zuordnung (Standard: ${defaultMatchWindow.toFixed(2)})
   --hilfe               Diese Hilfe anzeigen
 
@@ -102,7 +106,7 @@ async function main(): Promise<void> {
   printMatches(comparison);
   printMissed(comparison);
   printExtra(comparison);
-  printScore(score, marks);
+  printScore(score);
 
   if (!score.passed) process.exitCode = 1;
 }
@@ -188,6 +192,9 @@ async function readAnalysis(file: string): Promise<DetectedThrow[]> {
       nr: Number.isFinite(found.nr) ? (found.nr as number) : index + 1,
       at: found.startedAt as number,
       side: found.side,
+      // Eine Auswertung von vor der Aufsetzer-Erkennung hat das Feld nicht.
+      // Dann bleibt die Aufsetzer-Quote leer statt falsch.
+      bounce: typeof found.bounce === "boolean" ? found.bounce : undefined,
     };
   });
 }
@@ -214,6 +221,7 @@ async function analyzeVideo(file: string): Promise<DetectedThrow[]> {
     nr: found.nr,
     at: found.startedAt,
     side: found.side,
+    bounce: found.bounce,
   }));
 }
 
@@ -225,13 +233,16 @@ function printHead(
   window: number,
 ): void {
   const left = marks.throws.filter((mark) => mark.side === "links").length;
+  const bounces = marks.throws.filter((mark) => mark.bounce === true).length;
+  const rated = marks.throws.filter((mark) => mark.bounce !== undefined).length;
   console.log("");
   console.log(`Aufnahme:          ${marks.recording ?? name}`);
   if (marks.note) console.log(`Notiz:             ${marks.note}`);
   console.log(
     `Handmarkierungen:  ${path.resolve(marksFile)}\n` +
       `                   ${marks.throws.length} markierte Würfe ` +
-      `(${left} links, ${marks.throws.length - left} rechts)`,
+      `(${left} links, ${marks.throws.length - left} rechts)\n` +
+      `                   ${rated} davon mit "bounce"-Angabe, ${bounces} als Aufsetzer markiert`,
   );
   console.log(`Auswertung:        ${source.label}\n                   ${source.throws.length} erkannte Würfe`);
   console.log(`Zeitfenster:       ${seconds(window)} s`);
@@ -259,9 +270,17 @@ function printMatches(comparison: ThrowComparison): void {
   }
   console.log("Zugeordnete Würfe:");
   console.log(
-    ["  markiert", "Seite   ", "  erkannt", " Nr", "  Abstand", "Seite"].join("  "),
+    ["  markiert", "Seite   ", "  erkannt", " Nr", "  Abstand", "Seite   ", "Art"].join("  "),
   );
   for (const match of comparison.matches) {
+    const notes = [
+      match.sideCorrect ? "" : "Seite verwechselt",
+      match.bounceCorrect === false
+        ? match.detected.bounce
+          ? "direkter Wurf als Aufsetzer gezählt"
+          : "Aufsetzer übersehen"
+        : "",
+    ].filter(Boolean);
     console.log(
       [
         `${seconds(match.mark.at)} s`.padStart(10),
@@ -270,10 +289,17 @@ function printMatches(comparison: ThrowComparison): void {
         String(match.detected.nr).padStart(3),
         `${match.offset >= 0 ? "+" : "-"}${seconds(Math.abs(match.offset))} s`.padStart(9),
         match.detected.side.padEnd(8),
-        match.sideCorrect ? "" : "Seite verwechselt",
+        kind(match.detected.bounce).padEnd(9),
+        notes.join(", "),
       ].join("  ").trimEnd(),
     );
   }
+}
+
+/** Die Einordnung eines Wurfs als Wort — „?“, wenn die Auswertung sie nicht kennt. */
+function kind(bounce: boolean | undefined): string {
+  if (bounce === undefined) return "?";
+  return bounce ? "Aufsetzer" : "direkt";
 }
 
 /**
@@ -308,7 +334,7 @@ function printExtra(comparison: ThrowComparison): void {
   }
 }
 
-function printScore(score: ThrowScore, marks: ThrowMarks): void {
+function printScore(score: ThrowScore): void {
   console.log("");
   console.log("Messlatte aus der Spec:");
   console.log(
@@ -334,15 +360,41 @@ function printScore(score: ThrowScore, marks: ThrowMarks): void {
     ),
   );
 
-  // Die vierte Zahl der Messlatte steht bewusst schon hier: Sie kommt mit der
-  // Aufsetzer-Erkennung dazu, und bis dahin soll sichtbar sein, dass sie fehlt.
-  const marked = marks.throws.filter((mark) => mark.bounce !== undefined).length;
   console.log(
-    ` ${"Erkannte Aufsetzer".padEnd(24)} — kommt mit der Aufsetzer-Erkennung` +
-      (marked > 0
-        ? ` (bei ${marked} ${marked === 1 ? "Markierung" : "Markierungen"} bereits angegeben)`
-        : ""),
+    line(
+      "Erkannte Aufsetzer",
+      `${score.bounceFound} von ${score.bounceMarked}`,
+      percent(score.bounceRecall),
+      "mindestens",
+      score.bounceRecall,
+    ),
   );
+
+  // Der umgekehrte Fehler hat keine Messlatte in der Spec — aber er ist der
+  // teurere: Ein Aufsetzer bringt nach Regelwerk einen Becher extra, und eine
+  // Aufsetzerquote, die nur deshalb gut aussieht, weil die Erkennung überall
+  // einen Aufsetzer sieht, ist wertlos. Deshalb steht er daneben.
+  console.log(
+    [
+      ` ${"davon erfundene Aufsetzer".padEnd(24)}`,
+      `${score.directAsBounce} von ${score.directMarked}`.padStart(11),
+      (score.falseBounceShare === null
+        ? "—"
+        : `${(score.falseBounceShare * 100).toFixed(1)} %`
+      ).padStart(9),
+      "  (direkte Würfe, die als Aufsetzer gelten)",
+    ].join(" "),
+  );
+
+  // Ohne `bounce` in den Handmarkierungen gibt es zur Aufsetzer-Quote nichts zu
+  // sagen — dann soll dastehen, warum, statt einer leeren Zahl.
+  const unrated = score.matched - score.bounceRated;
+  if (unrated > 0) {
+    console.log(
+      ` ${"".padEnd(24)} ${unrated} zugeordnete ${unrated === 1 ? "Wurf trägt" : "Würfe tragen"} ` +
+        `keine "bounce"-Angabe und ${unrated === 1 ? "bleibt" : "bleiben"} bei der Aufsetzer-Quote außen vor.`,
+    );
+  }
 
   console.log("");
   console.log(score.passed ? "BESTANDEN" : "NICHT BESTANDEN");

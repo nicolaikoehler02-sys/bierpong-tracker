@@ -7,11 +7,14 @@
  * Browser-Seite — bleibt dünn.
  */
 export { analyzeFlight } from "./detector.ts";
+export { findBounce } from "./bounce.ts";
 export {
   TOURNAMENT_TABLE_LENGTH_CM,
   pixelsPerSecondToMetersPerSecond,
   pixelsToCm,
+  tableYAt,
   toScale,
+  toTableLine,
 } from "./calibration.ts";
 export { type FlightSettings, defaultFlightSettings } from "./settings.ts";
 export {
@@ -30,6 +33,7 @@ export { type Rgb, createFrame, drawLine, fillDisc, fillRect, strokeRect } from 
 export { paintOverlay } from "./overlay.ts";
 export type {
   BallCandidate,
+  BouncePoint,
   CalibrationPoint,
   FlightAnalysis,
   FlightFrame,
@@ -37,6 +41,7 @@ export type {
   FlightScale,
   FrameResult,
   TableCalibration,
+  TableLine,
   Throw,
   ThrowMetrics,
   ThrowerSide,

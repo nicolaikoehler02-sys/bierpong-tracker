@@ -1,5 +1,5 @@
 import type { FlightSettings } from "./settings.ts";
-import type { FlightScale, TableCalibration } from "./types.ts";
+import type { FlightScale, TableCalibration, TableLine } from "./types.ts";
 
 /**
  * Länge eines Turniertisches in Zentimetern.
@@ -83,6 +83,62 @@ export function toScale(
     tableLengthCm,
     imageFactor,
   };
+}
+
+/**
+ * Dieselbe Kalibrierung, aber als Strecke im ausgewerteten Bild: die vordere
+ * Tischkante von links nach rechts.
+ *
+ * `toScale` macht aus den beiden markierten Punkten eine einzige Zahl — wie
+ * viele Zentimeter ein Bildpunkt bedeutet. Für die Aufsetzer-Erkennung reicht
+ * das nicht: Sie muss wissen, **wo im Bild** der Tisch liegt, und dafür bleibt
+ * die Strecke als Strecke stehen.
+ *
+ * Geprüft wird wie beim Maßstab: keine Kalibrierung, zu dicht beieinander
+ * markierte Punkte — dann gibt es keine Tischebene, und die Aufsetzer-Erkennung
+ * arbeitet allein über die Form der Bahn weiter.
+ */
+export function toTableLine(
+  calibration: TableCalibration | null | undefined,
+  imageWidth: number,
+  settings: FlightSettings,
+): TableLine | null {
+  if (!calibration) return null;
+
+  const reference = calibration.referenceWidth;
+  const imageFactor =
+    Number.isFinite(reference) && (reference as number) > 0 && imageWidth > 0
+      ? imageWidth / (reference as number)
+      : 1;
+
+  const line: TableLine = {
+    startX: calibration.edgeStart.x * imageFactor,
+    startY: calibration.edgeStart.y * imageFactor,
+    endX: calibration.edgeEnd.x * imageFactor,
+    endY: calibration.edgeEnd.y * imageFactor,
+  };
+
+  const dx = line.endX - line.startX;
+  const dy = line.endY - line.startY;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (!Number.isFinite(length) || length < settings.minCalibrationSpan) return null;
+  return line;
+}
+
+/**
+ * Die Höhe der vorderen Tischkante an einer Stelle x, in Bildpunkten.
+ *
+ * Die Kante darf im Bild schräg liegen — die Kamera steht selten genau
+ * senkrecht davor. Außerhalb der beiden markierten Punkte wird die Gerade
+ * verlängert; das ist genauer als sie dort abzuschneiden, denn markiert wird
+ * oft ein Stück innerhalb der sichtbaren Kante.
+ */
+export function tableYAt(line: TableLine, x: number): number {
+  const dx = line.endX - line.startX;
+  // Eine senkrecht stehende „Kante" ist keine: Dann gibt es keine Höhe je x,
+  // und die Mitte der Strecke ist die einzige sinnvolle Antwort.
+  if (Math.abs(dx) < 1e-6) return (line.startY + line.endY) / 2;
+  return line.startY + ((x - line.startX) / dx) * (line.endY - line.startY);
 }
 
 /** Bildpunkte in Zentimeter — der ganze Kern der Umrechnung. */

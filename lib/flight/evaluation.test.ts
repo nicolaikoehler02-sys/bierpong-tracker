@@ -197,6 +197,126 @@ describe("compareThrows: Markierungen und erkannte Würfe einander zuordnen", ()
   });
 });
 
+describe("rateThrows: die Aufsetzer-Quote", () => {
+  /** Vier Würfe, zwei davon Aufsetzer — so wie sie von Hand markiert wären. */
+  const mitAufsetzer: ThrowMark[] = [
+    { at: 3.4, side: "links", bounce: false },
+    { at: 5.4, side: "rechts", bounce: true },
+    { at: 8.1, side: "links", bounce: false },
+    { at: 11.9, side: "rechts", bounce: true },
+  ];
+
+  /** Erkannte Würfe zu denselben Zeitpunkten, mit vorgegebener Einordnung. */
+  function found(bounces: Array<boolean | undefined>): DetectedThrow[] {
+    return mitAufsetzer.map((mark, index) => ({
+      nr: index + 1,
+      at: mark.at,
+      side: mark.side,
+      bounce: bounces[index],
+    }));
+  }
+
+  it("zählt richtig erkannte Aufsetzer und besteht die Messlatte", () => {
+    const score = rateThrows(compareThrows(mitAufsetzer, found([false, true, false, true])));
+
+    expect(score.bounceMarked).toBe(2);
+    expect(score.bounceFound).toBe(2);
+    expect(score.directMarked).toBe(2);
+    expect(score.directAsBounce).toBe(0);
+    expect(score.bounceRecall.value).toBe(1);
+    expect(score.bounceRecall.passed).toBe(true);
+    expect(score.falseBounceShare).toBe(0);
+    expect(score.passed).toBe(true);
+  });
+
+  it("scheitert, wenn ein Aufsetzer als direkter Wurf durchgeht", () => {
+    const comparison = compareThrows(mitAufsetzer, found([false, true, false, false]));
+    const score = rateThrows(comparison);
+
+    expect(score.bounceFound).toBe(1);
+    expect(score.bounceRecall.value).toBe(0.5);
+    expect(score.bounceRecall.passed).toBe(false);
+    // Erkannt und richtig zugeordnet ist der Wurf trotzdem — die Kennzahlen
+    // bleiben getrennt.
+    expect(score.recall.value).toBe(1);
+    expect(score.sideAccuracy.value).toBe(1);
+    expect(score.passed).toBe(false);
+    expect(comparison.matches[3].bounceCorrect).toBe(false);
+  });
+
+  it("macht sichtbar, wenn ein direkter Wurf fälschlich als Aufsetzer gilt", () => {
+    // Die Aufsetzer-Quote ist blendend — und trotzdem stimmt etwas nicht.
+    const score = rateThrows(compareThrows(mitAufsetzer, found([true, true, true, true])));
+
+    expect(score.bounceRecall.value).toBe(1);
+    expect(score.bounceRecall.passed).toBe(true);
+    // Genau dafür steht die zweite Zahl daneben.
+    expect(score.directAsBounce).toBe(2);
+    expect(score.falseBounceShare).toBe(1);
+  });
+
+  it("lässt die Aufsetzer-Quote leer, wenn keine Markierung sie angibt", () => {
+    // `marks` trägt keine bounce-Angabe — die Erkennung wird daran nicht
+    // gemessen, und die Aufnahme ist deswegen nicht durchgefallen.
+    const score = rateThrows(
+      compareThrows(marks, detected([[3.4, "links"], [5.4, "rechts"], [16.5, "links"]])),
+    );
+
+    expect(score.bounceRated).toBe(0);
+    expect(score.bounceRecall.value).toBeNull();
+    expect(score.bounceRecall.passed).toBe(false);
+    expect(score.falseBounceShare).toBeNull();
+    expect(score.passed).toBe(true);
+  });
+
+  it("lässt sie auch leer, wenn die Auswertung die Einordnung nicht kennt", () => {
+    // Eine JSON-Datei von vor der Aufsetzer-Erkennung: markiert ist alles,
+    // erkannt nichts. Das darf keine 0 % ergeben, sondern gar keine Zahl.
+    const score = rateThrows(
+      compareThrows(mitAufsetzer, found([undefined, undefined, undefined, undefined])),
+    );
+
+    expect(score.bounceRated).toBe(0);
+    expect(score.bounceRecall.value).toBeNull();
+    expect(score.passed).toBe(true);
+  });
+
+  it("besteht bei 9 von 10 erkannten Aufsetzern und scheitert bei 8", () => {
+    const zehn: ThrowMark[] = Array.from({ length: 10 }, (_, index) => ({
+      at: index * 5,
+      side: "links",
+      bounce: true,
+    }));
+    const erkannt = (count: number): DetectedThrow[] =>
+      zehn.map((mark, index) => ({
+        nr: index + 1,
+        at: mark.at,
+        side: mark.side,
+        bounce: index < count,
+      }));
+
+    expect(rateThrows(compareThrows(zehn, erkannt(9))).bounceRecall.passed).toBe(true);
+    expect(rateThrows(compareThrows(zehn, erkannt(8))).bounceRecall.passed).toBe(false);
+  });
+
+  it("zählt einen verpassten Wurf nicht noch einmal als verpassten Aufsetzer", () => {
+    // Der zweite Wurf fehlt ganz. Er drückt die Erkennungsquote — bei der
+    // Aufsetzer-Quote bleibt er außen vor, sonst zählte derselbe Fehler zweimal.
+    const score = rateThrows(
+      compareThrows(mitAufsetzer, [
+        { nr: 1, at: 3.4, side: "links", bounce: false },
+        { nr: 2, at: 8.1, side: "links", bounce: false },
+        { nr: 3, at: 11.9, side: "rechts", bounce: true },
+      ]),
+    );
+
+    expect(score.recall.value).toBe(0.75);
+    expect(score.bounceMarked).toBe(1);
+    expect(score.bounceFound).toBe(1);
+    expect(score.bounceRecall.value).toBe(1);
+  });
+});
+
 describe("rateThrows: die Messlatte aus der Spec", () => {
   it("besteht bei 95 von 100 erkannten Würfen und scheitert bei 94", () => {
     const hundert: ThrowMark[] = Array.from({ length: 100 }, (_, index) => ({

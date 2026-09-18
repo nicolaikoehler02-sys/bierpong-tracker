@@ -11,6 +11,8 @@ const COLOR_LEARNING: Rgb = [250, 204, 21];
 const COLOR_FLIGHT_LEFT: Rgb = [96, 165, 250];
 /** Flugbahn eines Wurfs von rechts */
 const COLOR_FLIGHT_RIGHT: Rgb = [251, 146, 60];
+/** Aufsetzpunkt — eigene Farbe, weil es die einzige Markierung ist, die nicht auf einem Bild liegt */
+const COLOR_BOUNCE: Rgb = [232, 121, 249];
 
 /** Stärke der Flugbahn in Bildpunkten */
 const FLIGHT_THICKNESS = 3;
@@ -25,6 +27,11 @@ const FLIGHT_HOLD_FRAMES = 15;
  * sein, was der Kern alles für einen Ball hält. Darüber liegt die erkannte
  * Flugbahn als durchgezogene Linie — daran ist in Sekunden zu sehen, ob der
  * Kern einen Wurf verpasst oder einen Schatten für einen Ball gehalten hat.
+ *
+ * Bei einem Aufsetzer kommt der erkannte Aufsetzpunkt dazu (siehe
+ * `markBounce`). Ob die Einordnung stimmt, ist damit genauso in Sekunden zu
+ * sehen wie alles andere: Liegt das Kreuz auf der Tischplatte im Knick der
+ * Bahn, stimmt sie; schwebt es in der Luft, stimmt sie nicht.
  */
 export function paintOverlay(
   frame: FlightFrame,
@@ -89,4 +96,28 @@ function paintFlight(frame: FlightFrame, found: Throw, index: number): void {
   // Der Abwurfpunkt bleibt als Scheibe stehen, damit die Richtung auch im
   // Standbild ablesbar ist.
   fillDisc(frame, points[0].x, points[0].y, 4, color);
+
+  markBounce(frame, found, index);
+}
+
+/**
+ * Markiert den erkannten Aufsetzpunkt — ein Fadenkreuz mit Kasten in eigener
+ * Farbe.
+ *
+ * Gezeichnet wird er erst, sobald das erste Bild **nach** dem Aufprall erreicht
+ * ist. Vorher wäre die Markierung eine Behauptung über die Zukunft, und im
+ * Overlay soll genau das sichtbar sein: Was hat der Kern bis hierher gesehen?
+ *
+ * Die Stelle liegt bewusst zwischen zwei Bildern (siehe `BouncePoint`). Im
+ * Video steht die Markierung deshalb typischerweise nicht auf einem Ball,
+ * sondern zwischen zwei Ballstellungen — das ist kein Fehler, sondern der
+ * geschätzte Aufprall.
+ */
+function markBounce(frame: FlightFrame, found: Throw, index: number): void {
+  const point = found.bouncePoint;
+  if (!found.bounce || !point || index < point.frameAfter) return;
+
+  fillDisc(frame, point.x, point.y, 4, COLOR_BOUNCE);
+  strokeRect(frame, point.x - 10, point.y - 10, 20, 20, COLOR_BOUNCE, 2);
+  fillRect(frame, point.x - 14, point.y - 1, 28, 2, COLOR_BOUNCE);
 }

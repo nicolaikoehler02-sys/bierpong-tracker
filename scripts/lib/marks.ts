@@ -17,18 +17,21 @@
  *   "recording": "abend-01.mp4",
  *   "note": "Nicolai links, Jakob rechts",
  *   "throws": [
- *     { "at": 12.4, "side": "links" },
- *     { "at": 15.9, "side": "rechts" },
- *     { "at": 21.2, "side": "links", "bounce": true, "note": "Ball kurz verdeckt" }
+ *     { "at": 12.4, "side": "links", "bounce": false },
+ *     { "at": 15.9, "side": "rechts", "bounce": true },
+ *     { "at": 21.2, "side": "links", "note": "Ball kurz verdeckt" }
  *   ]
  * }
  * ```
  *
  * `recording` und `note` sind freiwillig und dienen nur dem Wiederfinden.
- * Freiwillig sind auch `bounce` und `note` am einzelnen Wurf: `bounce` ist der
- * Platz für die Aufsetzer-Kennzahl der Messlatte und wird noch nicht
- * ausgewertet — wer ihn jetzt schon mitschreibt, muss die Aufnahme später nicht
- * erneut durchsehen.
+ * Freiwillig sind auch `bounce` und `note` am einzelnen Wurf. `bounce` ist die
+ * vierte Zahl der Messlatte: Wo es steht, wird die Aufsetzer-Erkennung daran
+ * gemessen — `true` für einen Aufsetzer, `false` für einen direkten Wurf. Wo es
+ * fehlt, bleibt der Wurf bei dieser Kennzahl außen vor; das ist kein Fehler,
+ * kostet aber eine Zeile Messlatte. Wichtig ist, auch die direkten Würfe mit
+ * `false` zu markieren: Sonst lässt sich nicht messen, wie oft die Erkennung
+ * einen Aufsetzer erfindet, und genau das ist der teurere Fehler.
  *
  * Wer gar nichts drumherum tippen will, darf die Datei auch als bloße Liste
  * schreiben: `[{ "at": 12.4, "side": "links" }, …]`.

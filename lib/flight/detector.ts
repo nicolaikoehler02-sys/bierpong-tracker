@@ -1,5 +1,5 @@
 import { Background } from "./background.ts";
-import { toScale } from "./calibration.ts";
+import { toScale, toTableLine } from "./calibration.ts";
 import { findCandidates } from "./candidates.ts";
 import { type FlightSettings, defaultFlightSettings } from "./settings.ts";
 import { buildTracks } from "./tracks.ts";
@@ -31,6 +31,11 @@ import type { FlightAnalysis, FlightFrame, FrameResult } from "./types.ts";
  * ausschließlich am Ende, auf die fertigen Kennzahlen: Welche Würfe gefunden
  * werden, ändert sie nicht — ohne Kalibrierung kommen dieselben Würfe heraus,
  * nur in Bildpunkten.
+ *
+ * Eine Ausnahme gibt es davon: Die Einordnung Aufsetzer/direkt kann mit
+ * Kalibrierung anders ausfallen als ohne, weil die Tischebene dann als
+ * zusätzliche Prüfung mitspricht (siehe `findBounce` in `bounce.ts`). Die Liste
+ * der Würfe selbst bleibt dieselbe.
  */
 export function analyzeFlight(
   frames: readonly FlightFrame[],
@@ -40,6 +45,10 @@ export function analyzeFlight(
 
   const { width, height } = frames[0];
   const scale = toScale(settings.calibration, width, settings);
+  // Dieselbe Kalibrierung, andere Frage: nicht „wie groß", sondern „wo liegt
+  // der Tisch". Ohne Kalibrierung bleibt sie unbeantwortet, und die
+  // Aufsetzer-Erkennung arbeitet allein über die Form der Bahn.
+  const tableLine = toTableLine(settings.calibration, width, settings);
   const background = new Background(width, height, settings);
   const grid = {
     gridWidth: background.gridWidth,
@@ -106,7 +115,7 @@ export function analyzeFlight(
 
   return {
     frames: results,
-    throws: toThrows(buildTracks(results, settings), settings, scale),
+    throws: toThrows(buildTracks(results, settings), settings, scale, tableLine),
     scale,
   };
 }

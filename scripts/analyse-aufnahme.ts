@@ -161,6 +161,12 @@ async function main(): Promise<void> {
   console.log(
     `Würfe:                   ${summary.throws} (${summary.throwsLeft} von links, ${summary.throwsRight} von rechts)`,
   );
+  console.log(
+    `Aufsetzer:               ${summary.bounces} von ${summary.throws}` +
+      (analysis.scale === null && summary.throws > 0
+        ? " — ohne Kalibrierung allein aus der Form der Bahn"
+        : ""),
+  );
   console.log("");
   console.log("Geschrieben:");
   if (!values["ohne-video"]) console.log(`  ${path.resolve(videoFile)}`);
@@ -174,15 +180,21 @@ async function main(): Promise<void> {
  *
  * Mit Kalibrierung stehen hier Zentimeter und Meter je Sekunde, ohne sie
  * Bildpunkte. In der CSV-Datei stehen immer beide.
+ *
+ * Die letzte Spalte ordnet jeden Wurf ein: Aufsetzer oder direkt. Beim
+ * Aufsetzer steht der geschätzte Aufprall dabei — Zeitpunkt und Stelle. Der
+ * Zeitpunkt liegt zwischen zwei Bildern; das ist kein Rundungsfehler, sondern
+ * der Zweck der Schätzung.
  */
 function printThrows(throws: readonly Throw[], calibrated: boolean): void {
   if (throws.length === 0) {
     console.log("Kein Wurf erkannt.");
     return;
   }
-  console.log("Nr  Abwurf    Dauer   Seite    Scheitel     Weite       Tempo");
+  console.log("Nr  Abwurf    Dauer   Seite    Scheitel     Weite       Tempo  Art");
   for (const found of throws) {
     const { metrics } = found;
+    const bounce = found.bouncePoint;
     console.log(
       [
         String(found.nr).padStart(2),
@@ -198,6 +210,10 @@ function printThrows(throws: readonly Throw[], calibrated: boolean): void {
         calibrated
           ? `${metrics.speedMps?.toFixed(1)} m/s`.padStart(10)
           : `${metrics.speed.toFixed(0)} px/s`.padStart(10),
+        bounce
+          ? `Aufsetzer bei ${bounce.at.toFixed(3)} s ` +
+            `(x ${bounce.x.toFixed(0)}, y ${bounce.y.toFixed(0)})`
+          : "direkt",
       ].join("  "),
     );
   }

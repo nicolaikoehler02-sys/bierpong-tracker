@@ -46,6 +46,15 @@ interface Match {
  * ersten Anschluss gibt es noch keine Geschwindigkeit; dort gilt stattdessen
  * ein großzügiger Umkreis (`maxStartJump`).
  *
+ * **Eine fallende Bahn bekommt eine zweite Vorhersage.** Setzt der Ball auf der
+ * Tischplatte auf, kehrt sich seine senkrechte Bewegung um, und die gerade
+ * Fortschreibung schießt um das Doppelte der Fallgeschwindigkeit unter ihm
+ * hindurch — die Bahn würde ausgerechnet an der interessanten Stelle reißen und
+ * ein Aufsetzer in zwei zu kurze Bruchstücke zerfallen. Für fallende Bahnen
+ * wird deshalb zusätzlich die an der Waagerechten gespiegelte Vorhersage
+ * geprüft (`maxBouncePredictionDistance`). Wo der Tisch liegt, muss dafür
+ * niemand wissen: Angeknüpft wird nur, was auch wirklich ein Kandidat ist.
+ *
  * Zuordnungen werden nach Abstand vergeben, der beste zuerst; jede Bahn und
  * jeder Kandidat kommen dabei höchstens einmal vor. Kandidaten, die zu keiner
  * Bahn passen, beginnen eine neue. Eine Bahn darf `maxMissingFrames` Bilder
@@ -125,11 +134,27 @@ function assign(
     const reach =
       (track.hasVelocity ? settings.maxPredictionDistance : settings.maxStartJump) * gap;
 
+    // Ein fallender Ball kann in diesem Bild aufgesetzt haben. Dann steht er
+    // nicht unter der Vorhersage, sondern ungefähr genauso weit darüber.
+    const falling = track.hasVelocity && track.vy > 0;
+    const bouncedY = last.y - track.vy * gap;
+    const bounceReach = settings.maxBouncePredictionDistance * gap;
+
     result.candidates.forEach((candidate, c) => {
       const dx = candidate.x - predictedX;
       const dy = candidate.y - predictedY;
-      const cost = Math.sqrt(dx * dx + dy * dy);
-      if (cost <= reach) possible.push({ track: t, candidate: c, cost });
+      const straight = Math.sqrt(dx * dx + dy * dy);
+      let cost = straight <= reach ? straight : Number.POSITIVE_INFINITY;
+
+      if (falling) {
+        const bouncedDy = candidate.y - bouncedY;
+        const bounced = Math.sqrt(dx * dx + bouncedDy * bouncedDy);
+        // Die gerade Vorhersage behält den Vortritt: Passt sie besser, bleibt
+        // es bei ihrem Abstand, und die Bahn wird ganz normal fortgesetzt.
+        if (bounced <= bounceReach && bounced < cost) cost = bounced;
+      }
+
+      if (Number.isFinite(cost)) possible.push({ track: t, candidate: c, cost });
     });
   });
 

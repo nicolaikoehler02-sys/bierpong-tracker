@@ -66,6 +66,21 @@ export interface FlightSettings {
    * bevor sie endet.
    */
   maxMissingFrames: number;
+  /**
+   * Größter erlaubter Abstand zur **gespiegelten** Vorhersage in Bildpunkten,
+   * je überbrücktem Bild.
+   *
+   * Die gerade Vorhersage schreibt die letzte Bewegung fort — beim Aufprall auf
+   * der Tischplatte ist genau das falsch: Der Ball kehrt seine senkrechte
+   * Richtung um, und die Vorhersage schießt um das Doppelte der Fallgeschwindig-
+   * keit unter ihn hindurch. Ohne eine zweite, gespiegelte Vorhersage reißt
+   * jede Bahn genau an der Stelle, an der es interessant wird, und aus einem
+   * Aufsetzer werden zwei zu kurze Bruchstücke, die beide kein Wurf sind.
+   *
+   * Sie gilt nur für fallende Bahnen und nur, wenn die gerade Vorhersage keinen
+   * näheren Kandidaten findet.
+   */
+  maxBouncePredictionDistance: number;
 
   // --- Aus einer Flugbahn wird ein Wurf ---
   /** Mindestzahl gesehener Punkte einer Bahn */
@@ -81,6 +96,75 @@ export interface FlightSettings {
   minThrowSpeed: number;
   /** Größte waagerechte Geschwindigkeit eines Wurfs in Bildpunkten je Sekunde */
   maxThrowSpeed: number;
+
+  // --- Aufsetzer oder direkter Wurf (siehe `bounce.ts`) ---
+  /**
+   * Mindestzahl gesehener Punkte **vor** der Umkehr.
+   *
+   * Zwei Punkte sind das Wenigste, woraus sich die Fallgerade für die Schätzung
+   * des Aufsetzzeitpunkts bilden lässt.
+   */
+  minBounceApproach: number;
+  /**
+   * Mindestzahl gesehener Punkte **nach** der Umkehr.
+   *
+   * Sie trennt den Aufsetzer vom Ball, der am Ende der Bahn vom Becherrand
+   * abprallt: Nach einem Aufsetzer fliegt der Ball noch bis zum Becher, nach
+   * einem Abprall am Becherrand ist die Bahn zu Ende.
+   */
+  minBounceRebound: number;
+  /** So viele Punkte je Ast gehen höchstens in die Schätzung des Aufsetzzeitpunkts ein */
+  bounceFitPoints: number;
+  /**
+   * Mindestabstieg vom Scheitel bis zur Umkehr in Bildpunkten.
+   *
+   * Der Schwerpunkt eines bewegungsunscharfen Streifens wandert um ein paar
+   * Bildpunkte auf und ab; daraus darf kein Aufsetzer werden. 12 Bildpunkte
+   * sind bei 640 Punkten Bildbreite gut ein Balldurchmesser und rund 5 cm.
+   */
+  minBounceDrop: number;
+  /**
+   * Mindestanstieg nach der Umkehr in Bildpunkten — die Höhe des zweiten Bogens.
+   *
+   * Hier liegt die ehrliche Grenze des Verfahrens: Ein flacher Aufsetzer, der
+   * kaum wieder hochkommt, bleibt darunter und wird als direkter Wurf gezählt.
+   * Das ist gewollt. Ein erfundener Aufsetzer ist der teurere Fehler — er bringt
+   * nach Regelwerk einen Becher extra, und eine geschönte Aufsetzerquote ist
+   * schlimmer als eine zu niedrige.
+   */
+  minBounceRise: number;
+  /**
+   * Waagerechte Mindeststrecke nach der Umkehr in Bildpunkten.
+   *
+   * Der eigentliche Unterschied zwischen Aufsetzer und Becherrand-Abpraller:
+   * Der Aufsetzer kommt **vor** dem Becher auf und fliegt danach noch ein
+   * ordentliches Stück weiter; der Abpraller springt am Becher fast senkrecht
+   * hoch und kommt waagerecht nicht mehr weit. 50 Bildpunkte sind rund ein
+   * Zehntel der Tischlänge, also gut 20 cm.
+   */
+  minBounceReboundSpan: number;
+  /**
+   * **Nur mit Kalibrierung:** So weit darf der Aufsetzpunkt über der vorderen
+   * Tischkante liegen, in Bildpunkten.
+   *
+   * Der Ball kommt über der Mittellinie des Tisches auf; im Seitenbild liegt
+   * diese Stelle über der vorderen Kante, weil sie weiter von der Kamera weg
+   * ist. Wie weit darüber, hängt von Kamerahöhe und Tischbreite ab und wird
+   * hier ausdrücklich nicht ausgerechnet — der Wert ist großzügig gewählt,
+   * weil diese Prüfung nur das grob Unmögliche aussortieren soll: eine Umkehr
+   * mitten in der Luft. 80 Bildpunkte sind bei 640 Punkten Bildbreite rund
+   * 35 cm.
+   */
+  maxBounceAboveTable: number;
+  /**
+   * **Nur mit Kalibrierung:** So weit darf der Aufsetzpunkt unter der vorderen
+   * Tischkante liegen, in Bildpunkten.
+   *
+   * Unter der vorderen Kante ist vor oder unter dem Tisch — dort setzt kein
+   * Ball auf. Der Spielraum deckt nur die Ungenauigkeit der Schätzung und des
+   * Markierens ab und ist deshalb deutlich kleiner als nach oben.
+   */
+  maxBounceBelowTable: number;
 
   // --- Kalibrierung: aus Bildpunkten werden Zentimeter ---
   /**
@@ -164,6 +248,12 @@ export const defaultFlightSettings: FlightSettings = {
   // Becher. Zwei Bilder sind knapp eine Fünfzehntelsekunde — lang genug dafür,
   // kurz genug, dass keine zwei Würfe zusammenwachsen.
   maxMissingFrames: 2,
+  // Ein steil fallender Ball legt je Bild rund 30 Bildpunkte nach unten zurück
+  // und kommt mit gut der Hälfte davon wieder hoch. Die gespiegelte Vorhersage
+  // liegt damit um rund 15 Bildpunkte daneben, dazu kommt die halbe Bildzeit,
+  // um die der Aufprall verschoben sein kann. 40 fängt beides auf, ohne einen
+  // beliebigen anderen Fleck im Bild anzuziehen.
+  maxBouncePredictionDistance: 40,
 
   // Ein Wurf ist bei 30 Bildern pro Sekunde rund 20 Bilder lang. Fünf Punkte
   // sind das Wenigste, woran sich eine Richtung überhaupt ablesen lässt.
@@ -181,6 +271,32 @@ export const defaultFlightSettings: FlightSettings = {
   // Schneller als 10 Meter je Sekunde wirft niemand einen Tischtennisball über
   // einen Biertisch; darüber sind zwei fremde Flecken zu einer Bahn verknüpft.
   maxThrowSpeed: 2200,
+
+  // Zwei Punkte sind das Wenigste für eine Fallgerade; mehr braucht es davor
+  // nicht, weil der Ball dort schon fällt.
+  minBounceApproach: 2,
+  // Nach dem Aufprall müssen drei Punkte kommen — ein Bruchteil einer Zehntel-
+  // sekunde. Weniger wäre auch bei einem Abprall am Becherrand zu haben.
+  minBounceRebound: 3,
+  // Drei Punkte je Ast: genug, damit ein verwackelter Schwerpunkt nicht die
+  // ganze Gerade kippt, wenig genug, dass die Schwerkraft die Gerade nicht
+  // krümmt.
+  bounceFitPoints: 3,
+  // Ein Balldurchmesser Abstieg — darunter ist es Schwerpunktrauschen.
+  minBounceDrop: 12,
+  // Der zweite Bogen muss mindestens einen Balldurchmesser hoch sein. Flacher
+  // ist bei 30 Bildern pro Sekunde nicht mehr sicher zu messen; dann gilt der
+  // Wurf als direkt.
+  minBounceRise: 10,
+  // Rund ein Zehntel der Tischlänge muss der Ball nach dem Aufprall noch
+  // zurücklegen, sonst war es ein Abprall am Becher und kein Aufsetzer.
+  minBounceReboundSpan: 50,
+  // Großzügig: Der Ball kommt über der Tischmitte auf, und die liegt im
+  // Seitenbild über der vorderen Kante. Diese Prüfung soll nur eine Umkehr
+  // mitten in der Luft aussortieren.
+  maxBounceAboveTable: 80,
+  // Nach unten eng: Unter der vorderen Tischkante gibt es keine Tischplatte.
+  maxBounceBelowTable: 30,
 
   // Ohne Angabe wird in Bildpunkten gerechnet. Das ist der Standard und kein
   // Mangel: Die Kalibrierung gehört zur Aufstellung, nicht zur Erkennung.

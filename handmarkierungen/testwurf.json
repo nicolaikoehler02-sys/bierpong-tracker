@@ -1,9 +1,15 @@
 {
   "recording": "testwurf.mp4",
-  "note": "Künstliche Aufnahme aus 'npm run testvideo'. Die drei Flugbögen sind gezeichnet und damit von Hand nachrechenbar; der zurückrollende Ball ab 18.2 s ist bewusst nicht markiert, weil er kein Wurf ist.",
+  "note": "Künstliche Aufnahme aus 'npm run testvideo'. Die vier Flugbahnen sind gezeichnet und damit von Hand nachrechenbar; der zurückrollende Ball ab 18.2 s ist bewusst nicht markiert, weil er kein Wurf ist.",
   "throws": [
-    { "at": 3.4, "side": "links" },
-    { "at": 5.4, "side": "rechts" },
-    { "at": 16.5, "side": "links", "note": "nach dem Lichtwechsel bei 13 s" }
+    { "at": 3.4, "side": "links", "bounce": false },
+    { "at": 5.4, "side": "rechts", "bounce": false },
+    { "at": 16.5, "side": "links", "bounce": false, "note": "nach dem Lichtwechsel bei 13 s" },
+    {
+      "at": 22.5,
+      "side": "links",
+      "bounce": true,
+      "note": "Aufprall bei 23.05 s, also zwischen Bild 691 und Bild 692"
+    }
   ]
 }

@@ -3,7 +3,9 @@ import {
   TOURNAMENT_TABLE_LENGTH_CM,
   pixelsPerSecondToMetersPerSecond,
   pixelsToCm,
+  tableYAt,
   toScale,
+  toTableLine,
 } from "./calibration.ts";
 import { type FlightSettings, defaultFlightSettings } from "./settings.ts";
 import type { TableCalibration } from "./types.ts";
@@ -70,6 +72,44 @@ describe("toScale: aus der Kalibrierung wird ein Maßstab", () => {
     ).toBeNull();
     expect(toScale({ ...calibration, tableLengthCm: 0 }, 640, settings)).toBeNull();
     expect(toScale({ ...calibration, tableLengthCm: -240 }, 640, settings)).toBeNull();
+  });
+});
+
+describe("toTableLine: aus derselben Kalibrierung wird die Tischebene", () => {
+  it("gibt die markierte Kante als Strecke im ausgewerteten Bild zurück", () => {
+    const line = toTableLine(calibration, 640, settings);
+
+    expect(line).toEqual({ startX: 20, startY: 300, endX: 620, endY: 300 });
+  });
+
+  it("rechnet sie wie den Maßstab auf die ausgewertete Bildgröße um", () => {
+    const line = toTableLine({ ...calibration, referenceWidth: 1280 }, 640, settings);
+
+    expect(line).toEqual({ startX: 10, startY: 150, endX: 310, endY: 150 });
+  });
+
+  it("meldet ohne brauchbare Kalibrierung keine Tischebene", () => {
+    expect(toTableLine(null, 640, settings)).toBeNull();
+    expect(toTableLine(undefined, 640, settings)).toBeNull();
+    // Zwei Punkte fast aufeinander: daraus wird auch keine Ebene.
+    expect(toTableLine({ ...calibration, edgeEnd: { x: 24, y: 300 } }, 640, settings)).toBeNull();
+  });
+
+  it("liest die Höhe des Tisches an jeder Stelle ab, auch bei schräger Kante", () => {
+    // Die Kamera schaut selten genau senkrecht auf die Kante: links y 300,
+    // rechts y 340.
+    const schraeg = toTableLine(
+      { ...calibration, edgeEnd: { x: 620, y: 340 } },
+      640,
+      settings,
+    );
+    if (!schraeg) throw new Error("Die Kalibrierung des Tests muss eine Tischebene ergeben.");
+
+    expect(tableYAt(schraeg, 20)).toBeCloseTo(300, 6);
+    expect(tableYAt(schraeg, 320)).toBeCloseTo(320, 6);
+    expect(tableYAt(schraeg, 620)).toBeCloseTo(340, 6);
+    // Außerhalb der markierten Punkte wird die Gerade verlängert.
+    expect(tableYAt(schraeg, 0)).toBeCloseTo(298.667, 3);
   });
 });
 

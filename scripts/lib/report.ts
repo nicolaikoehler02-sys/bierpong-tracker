@@ -15,6 +15,12 @@ const SEPARATOR = ";";
  * Metern je Sekunde stehen daneben und bleiben leer, wenn ohne Kalibrierung
  * ausgewertet wurde — so hat die Tabelle jedes Mal dieselben Spalten und lässt
  * sich zwischen Aufnahmen vergleichen.
+ *
+ * `aufsetzer` steht bei jedem Wurf, weil jeder Wurf eingeordnet ist. Die drei
+ * Spalten zum Aufsetzpunkt bleiben bei einem direkten Wurf leer — dort gibt es
+ * keinen. `aufsetzer_s` ist ein geschätzter Zeitpunkt zwischen zwei Bildern und
+ * deshalb keine glatte Vielfache der Bildzeit; das ist Absicht und kein
+ * Rundungsfehler.
  */
 const THROW_COLUMNS = [
   "nr",
@@ -22,6 +28,10 @@ const THROW_COLUMNS = [
   "ende_s",
   "dauer_s",
   "seite",
+  "aufsetzer",
+  "aufsetzer_s",
+  "aufsetzer_x",
+  "aufsetzer_y",
   "bild_von",
   "bild_bis",
   "punkte",
@@ -55,6 +65,10 @@ export function throwsToCsv(throws: readonly Throw[]): string {
         found.endedAt.toFixed(3),
         metrics.duration.toFixed(3),
         found.side,
+        found.bounce ? "ja" : "nein",
+        optional(found.bouncePoint?.at, 3),
+        optional(found.bouncePoint?.x, 1),
+        optional(found.bouncePoint?.y, 1),
         found.startFrame,
         found.endFrame,
         found.points.length,
@@ -79,7 +93,11 @@ export function throwsToCsv(throws: readonly Throw[]): string {
   return `${lines.join("\r\n")}\r\n`;
 }
 
-/** Ein Wert, den es nur mit Kalibrierung gibt — ohne sie bleibt die Zelle leer. */
+/**
+ * Ein Wert, den es nicht bei jedem Wurf gibt — die Zentimeterwerte ohne
+ * Kalibrierung, der Aufsetzpunkt bei einem direkten Wurf. Dann bleibt die Zelle
+ * leer statt eine 0 zu behaupten.
+ */
 function optional(value: number | undefined, digits: number): string {
   return value === undefined ? "" : value.toFixed(digits);
 }
@@ -199,6 +217,8 @@ export interface Summary {
   throwsLeft: number;
   /** Erkannte Würfe des rechten Werfers */
   throwsRight: number;
+  /** Erkannte Aufsetzer */
+  bounces: number;
 }
 
 export function summarize(analysis: FlightAnalysis): Summary {
@@ -212,5 +232,6 @@ export function summarize(analysis: FlightAnalysis): Summary {
     throws: analysis.throws.length,
     throwsLeft: analysis.throws.filter((found) => found.side === "links").length,
     throwsRight: analysis.throws.filter((found) => found.side === "rechts").length,
+    bounces: analysis.throws.filter((found) => found.bounce).length,
   };
 }

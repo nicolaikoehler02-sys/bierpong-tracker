@@ -2,13 +2,14 @@
  * Erzeugt eine künstliche Aufnahme, an der sich der ganze Weg von Hand
  * nachsehen lässt. Echtes Material der Seitenkamera gibt es noch nicht.
  *
- * Die Aufnahme enthält absichtlich alle fünf Fälle, die der Erkennungskern
+ * Die Aufnahme enthält absichtlich alle sechs Fälle, die der Erkennungskern
  * auseinanderhalten muss:
  *
  * 1. **Leerer Vorlauf** — daraus lernt der Kern den Hintergrund.
  * 2. **Flugbögen** — drei Würfe, einer davon als Streifen wie bei
  *    Bewegungsunschärfe. Genau diese drei müssen in der Wurftabelle stehen,
- *    mit der Seite, die zur Flugrichtung passt.
+ *    mit der Seite, die zur Flugrichtung passt, und alle drei als **direkte**
+ *    Würfe.
  * 3. **Störende Person** — läuft durch das Bild und darf keinen Kandidaten
  *    erzeugen.
  * 4. **Lichtwechsel** — schaltet die Helligkeit sprunghaft hoch. Danach lernt
@@ -16,6 +17,10 @@
  *    gefunden.
  * 5. **Zurückrollender Ball** — läuft langsam und flach über den Tisch zurück
  *    und darf kein Wurf sein.
+ * 6. **Aufsetzer** — kommt auf der Tischebene auf und fliegt in einem zweiten,
+ *    flacheren Bogen weiter. Er muss als Wurf **und** als Aufsetzer in der
+ *    Tabelle stehen. Der Aufprall liegt absichtlich zwischen zwei Bildern, weil
+ *    genau das bei 30 Bildern pro Sekunde der Normalfall ist.
  *
  * Dazu liegt im Bild eine **sichtbare vordere Tischkante** mit zwei hellen
  * Marken an ihren Enden. Ihre wahre Länge ist hier bekannt, weil wir das Bild
@@ -33,7 +38,7 @@ import { run, toolPath } from "./lib/ffmpeg.ts";
 const WIDTH = 640;
 const HEIGHT = 360;
 const FPS = 30;
-const DURATION = 22;
+const DURATION = 26;
 
 /** Dunkle Holzwand, leicht verrauscht — näher am echten Raum als reines Schwarz. */
 const BACKGROUND = "0x3a2a18";
@@ -88,6 +93,17 @@ interface Ball {
   height: number;
   /** Scheitelhöhe über der Tischebene in Bildpunkten; 0 heißt: rollt flach über den Tisch */
   rise: number;
+  /**
+   * Nur beim Aufsetzer: Zeitpunkt des Aufpralls auf der Tischebene in Sekunden.
+   *
+   * Bis dahin gilt `rise`, danach `rebound` — zwei Bögen mit einem Knick
+   * dazwischen. Der Wert ist absichtlich so gewählt, dass er **zwischen** zwei
+   * Bildern liegt: Bei 30 Bildern pro Sekunde ist genau das der Normalfall, und
+   * nur so prüft die Testaufnahme auch die Schätzung des Aufsetzzeitpunkts.
+   */
+  bounceAt?: number;
+  /** Nur beim Aufsetzer: Scheitelhöhe des zweiten Bogens in Bildpunkten */
+  rebound?: number;
 }
 
 /** Drei Flugbögen: nach rechts, zurück, und einer nach dem Lichtwechsel. */
@@ -105,20 +121,67 @@ const ARCS: Ball[] = [
  */
 const ROLL: Ball = { from: 560, to: 60, start: 18.2, end: 21.2, width: 12, height: 12, rise: 0 };
 
-const BALLS: Ball[] = [...ARCS, ROLL];
+/**
+ * Der Aufsetzer: erster Bogen bis auf die Tischebene, Aufprall, zweiter
+ * flacherer Bogen weiter bis zum Becher.
+ *
+ * **Der Aufprall liegt bewusst zwischen zwei Bildern.** 23,05 Sekunden sind bei
+ * 30 Bildern pro Sekunde genau die Mitte zwischen Bild 691 und Bild 692 — in
+ * keinem einzigen Bild ist der Ball auf der Tischplatte zu sehen. Genau so
+ * sieht ein Aufsetzer in einer echten Aufnahme aus, und genau daran muss sich
+ * die Schätzung des Aufsetzzeitpunkts messen lassen.
+ *
+ * Der zweite Bogen ist mit 55 Bildpunkten Scheitelhöhe gut ein Drittel des
+ * ersten — ein Tischtennisball verliert beim Aufprall auf Holz ungefähr so
+ * viel. Er ist damit auch deutlich über `minBounceRise`.
+ */
+const BOUNCE: Ball = {
+  from: 60,
+  to: 560,
+  start: 22.5,
+  end: 23.5,
+  width: 12,
+  height: 12,
+  rise: 150,
+  bounceAt: 23.05,
+  rebound: 55,
+};
+
+const BALLS: Ball[] = [...ARCS, ROLL, BOUNCE];
 
 /**
  * Ein Ball als ffmpeg-Ausdruck: gleichmäßig zur Seite, Parabel nach oben.
  * Gezeichnet wird mit `overlay`, nicht mit `drawbox` — dort ist `t` die
  * Linienstärke und nicht der Zeitpunkt.
+ *
+ * Ein Aufsetzer besteht aus zwei solchen Parabeln hintereinander; welche gilt,
+ * entscheidet der ffmpeg-Ausdruck `if(lt(t,…))` Bild für Bild.
  */
 function overlayFor(ball: Ball): string {
   const u = `((t-${ball.start})/${ball.end - ball.start})`;
   const x = `${ball.from}+${ball.to - ball.from}*${u}`;
-  // Scheitel des Bogens bei halber Strecke; ohne Scheitelhöhe bleibt der Ball
-  // auf der Tischebene und rollt.
-  const y = ball.rise > 0 ? `${TABLE_Y}-${4 * ball.rise}*${u}*(1-${u})` : `${TABLE_Y}`;
-  return `overlay=x='${x}':y='${y}':enable='between(t,${ball.start},${ball.end})'`;
+  return `overlay=x='${x}':y='${heightFor(ball)}':enable='between(t,${ball.start},${ball.end})'`;
+}
+
+/** Die Höhe des Balls über der Zeit — ein Bogen, zwei Bögen oder gar keiner. */
+function heightFor(ball: Ball): string {
+  // Ohne Scheitelhöhe bleibt der Ball auf der Tischebene und rollt.
+  if (ball.rise <= 0) return `${TABLE_Y}`;
+
+  if (ball.bounceAt !== undefined && ball.rebound !== undefined) {
+    const before = bow(ball.start, ball.bounceAt, ball.rise);
+    const after = bow(ball.bounceAt, ball.end, ball.rebound);
+    return `if(lt(t,${ball.bounceAt}),${before},${after})`;
+  }
+
+  const u = `((t-${ball.start})/${ball.end - ball.start})`;
+  return `${TABLE_Y}-${4 * ball.rise}*${u}*(1-${u})`;
+}
+
+/** Ein einzelner Parabelbogen zwischen zwei Zeitpunkten, beide Enden auf der Tischebene. */
+function bow(start: number, end: number, rise: number): string {
+  const u = `((t-${start})/${end - start})`;
+  return `${TABLE_Y}-${4 * rise}*${u}*(1-${u})`;
 }
 
 /**
@@ -223,6 +286,15 @@ async function main(): Promise<void> {
   console.log(`  Person läuft durchs Bild ${PERSON.start}–${PERSON.end} s`);
   console.log(`  Lichtwechsel bei ${LIGHT_AT} s`);
   console.log(`  zurückrollender Ball ${ROLL.start}–${ROLL.end} s (kein Wurf)`);
+  if (BOUNCE.bounceAt !== undefined && BOUNCE.rebound !== undefined) {
+    const frame = BOUNCE.bounceAt * FPS;
+    console.log(
+      `  Aufsetzer ${BOUNCE.start}–${BOUNCE.end} s, von links — ` +
+        `Aufprall bei ${BOUNCE.bounceAt} s, also zwischen Bild ${Math.floor(frame)} und ` +
+        `Bild ${Math.ceil(frame)}; zweiter Bogen ${BOUNCE.rebound} px = ` +
+        `${(BOUNCE.rebound * cmPerPixel).toFixed(0)} cm`,
+    );
+  }
   console.log("");
   console.log(
     `Tischkante: x ${TABLE_EDGE.left} bis ${TABLE_EDGE.right} bei y ${TABLE_EDGE.y} — ` +

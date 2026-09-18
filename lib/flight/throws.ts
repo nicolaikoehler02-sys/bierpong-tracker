@@ -1,7 +1,8 @@
+import { findBounce } from "./bounce.ts";
 import { pixelsPerSecondToMetersPerSecond, pixelsToCm } from "./calibration.ts";
 import type { FlightSettings } from "./settings.ts";
 import type { FlightTrack } from "./tracks.ts";
-import type { FlightPoint, FlightScale, Throw, ThrowMetrics } from "./types.ts";
+import type { FlightPoint, FlightScale, TableLine, Throw, ThrowMetrics } from "./types.ts";
 
 /**
  * Behält von allen Flugbahnen nur die, die einen Wurf beschreiben.
@@ -26,15 +27,22 @@ import type { FlightPoint, FlightScale, Throw, ThrowMetrics } from "./types.ts";
  * Der Maßstab kommt erst ganz am Ende dazu und nur für die Kennzahlen: Keine
  * der vier Prüfungen sieht ihn an. Genau deshalb erkennt der Kern ohne
  * Kalibrierung dieselben Würfe wie mit — nur eben in Bildpunkten.
+ *
+ * Jeder Wurf, der übrig bleibt, wird zuletzt eingeordnet: Aufsetzer oder
+ * direkter Wurf (siehe `findBounce`). Auch das ändert nichts daran, **welche**
+ * Bahnen Würfe sind — die Tischebene entscheidet nur mit, ob ein Knick in der
+ * Bahn als Aufprall durchgeht. Ohne Kalibrierung läuft die Einordnung über die
+ * Form der Bahn allein weiter.
  */
 export function toThrows(
   tracks: readonly FlightTrack[],
   settings: FlightSettings,
   scale: FlightScale | null = null,
+  tableLine: TableLine | null = null,
 ): Throw[] {
   const throws: Throw[] = [];
   for (const track of tracks) {
-    const found = toThrow(track, settings, scale);
+    const found = toThrow(track, settings, scale, tableLine);
     if (found) throws.push(found);
   }
 
@@ -50,6 +58,7 @@ function toThrow(
   track: FlightTrack,
   settings: FlightSettings,
   scale: FlightScale | null,
+  tableLine: TableLine | null,
 ): Throw | null {
   const points = track.points;
   if (points.length < settings.minThrowPoints) return null;
@@ -74,6 +83,8 @@ function toThrow(
   const speedX = Math.abs(spanX) / duration;
   if (speedX < settings.minThrowSpeed || speedX > settings.maxThrowSpeed) return null;
 
+  const bouncePoint = findBounce(points, settings, tableLine);
+
   return {
     nr: 0,
     startedAt: first.at,
@@ -82,6 +93,8 @@ function toThrow(
     endFrame: last.index,
     side: direction > 0 ? "links" : "rechts",
     points: points.slice(),
+    bounce: bouncePoint !== null,
+    bouncePoint,
     metrics: measure(points, duration, Math.abs(spanX), scale),
   };
 }

@@ -14,16 +14,16 @@ import type { ThrowerSide } from "./types.ts";
  * Ein von Hand markierter Wurf — eine Zeile aus der Markierungsdatei.
  *
  * Bewusst wenige Felder: Zeitpunkt und Seite sind alles, was von Hand zuverlässig
- * zu erfassen ist. `bounce` und `note` sind freiwillig und bleiben hier ohne
- * Wirkung; `bounce` ist der Platz für die Aufsetzer-Kennzahl, die mit der
- * Aufsetzer-Erkennung dazukommt.
+ * zu erfassen ist. `bounce` und `note` sind freiwillig; wo `bounce` angegeben
+ * ist, wird die Aufsetzer-Erkennung daran gemessen, wo es fehlt, bleibt der
+ * Wurf bei dieser Kennzahl außen vor.
  */
 export interface ThrowMark {
   /** Zeitpunkt des Abwurfs in der Aufnahme in Sekunden */
   at: number;
   /** Seite des Werfers, von Hand abgelesen */
   side: ThrowerSide;
-  /** Freiwillig: War der Wurf ein Aufsetzer? Wird noch nicht ausgewertet. */
+  /** Freiwillig: War der Wurf ein Aufsetzer? */
   bounce?: boolean;
   /** Freiwillig: Notiz für den Menschen, zum Beispiel „Ball kurz verdeckt“ */
   note?: string;
@@ -42,6 +42,13 @@ export interface DetectedThrow {
   /** Zeitpunkt des Abwurfs in Sekunden (`startedAt` eines erkannten Wurfs) */
   at: number;
   side: ThrowerSide;
+  /**
+   * Aufsetzer oder direkter Wurf, wie die Erkennung ihn eingeordnet hat.
+   *
+   * Freiwillig, weil eine Auswertungsdatei von vor der Aufsetzer-Erkennung das
+   * Feld nicht hat. Fehlt es, bleibt die Aufsetzer-Kennzahl leer statt falsch.
+   */
+  bounce?: boolean;
 }
 
 /** Eine Markierung und der erkannte Wurf, der zu ihr gehört. */
@@ -52,6 +59,14 @@ export interface ThrowMatch {
   offset: number;
   /** Stimmt die Seite der Erkennung mit der markierten überein? */
   sideCorrect: boolean;
+  /**
+   * Stimmt die Einordnung Aufsetzer/direkt mit der markierten überein?
+   *
+   * `null` heißt „nicht beurteilbar": Entweder sagt die Markierung nichts über
+   * den Aufsetzer, oder die Auswertung kennt die Angabe nicht. Beides darf die
+   * Kennzahl nicht verbessern und nicht verschlechtern.
+   */
+  bounceCorrect: boolean | null;
 }
 
 /** Das Ergebnis der Zuordnung: was zusammengehört, was fehlt, was zu viel ist. */
@@ -88,9 +103,13 @@ export const flightBenchmark = {
   sideAccuracy: 0.98,
   /** Höchstens 1 Fehlalarm je 100 markierter Würfe */
   falseAlarmsPer100: 1,
-  // Die vierte Zahl der Messlatte — mindestens 90 % der Aufsetzer erkannt —
-  // fehlt hier, solange der Kern keine Aufsetzer meldet. Der Platz dafür ist in
-  // `ThrowMark.bounce` schon vorgesehen.
+  /** Mindestens 90 % der von Hand markierten Aufsetzer müssen als solche erkannt werden */
+  bounceRecall: 0.9,
+  // Für den umgekehrten Fehler — ein direkter Wurf gilt als Aufsetzer — setzt
+  // die Spec keine Messlatte. Gezählt und ausgegeben wird er trotzdem, weil er
+  // der teurere ist: Ein Aufsetzer bringt nach Regelwerk einen Becher extra,
+  // ein erfundener Aufsetzer also eine geschönte Statistik an der Stelle, an
+  // der wir am genauesten hinsehen wollen.
 } as const;
 
 /**
@@ -147,6 +166,10 @@ export function compareThrows(
       detected: found,
       offset: found.at - mark.at,
       sideCorrect: found.side === mark.side,
+      bounceCorrect:
+        mark.bounce === undefined || found.bounce === undefined
+          ? null
+          : found.bounce === mark.bounce,
     });
   }
 
@@ -191,7 +214,35 @@ export interface ThrowScore {
   /** Fehlalarme je 100 markierter Würfe */
   falseAlarms: BenchmarkCheck;
 
-  /** Alle drei Kennzahlen bestanden? */
+  // --- Aufsetzer ---
+  /** Zugeordnete Paare, bei denen die Einordnung überhaupt beurteilbar ist */
+  bounceRated: number;
+  /** Davon als Aufsetzer markiert */
+  bounceMarked: number;
+  /** Davon von der Erkennung als Aufsetzer eingeordnet */
+  bounceFound: number;
+  /** Als direkter Wurf markiert */
+  directMarked: number;
+  /** Direkte Würfe, die fälschlich als Aufsetzer gelten — der teurere Fehler */
+  directAsBounce: number;
+  /** Anteil erkannter Aufsetzer (0–1) */
+  bounceRecall: BenchmarkCheck;
+  /**
+   * Anteil der direkten Würfe, die fälschlich als Aufsetzer gelten (0–1).
+   *
+   * Ohne Messlatte, weil die Spec keine setzt — aber mit ausgegeben, damit die
+   * Aufsetzerquote nicht dadurch gut aussieht, dass die Erkennung großzügig
+   * überall einen Aufsetzer sieht.
+   */
+  falseBounceShare: number | null;
+
+  /**
+   * Alle Kennzahlen der Messlatte bestanden?
+   *
+   * Die Aufsetzerquote zählt nur mit, wenn überhaupt Aufsetzer markiert sind.
+   * Eine Aufnahme ohne `bounce`-Angaben ist deswegen nicht durchgefallen — sie
+   * ist an dieser Stelle einfach nicht bewertet.
+   */
   passed: boolean;
 }
 
@@ -202,6 +253,12 @@ export interface ThrowScore {
  * Kennzahl `null` statt 0 oder 100 %: Eine Aufnahme ohne Markierungen ist nicht
  * zu 100 % erkannt, sondern gar nicht bewertet. Bestanden ist sie damit auch
  * nicht.
+ *
+ * **Die Aufsetzerquote zählt nur die zugeordneten Würfe.** Ein verpasster Wurf
+ * ist bereits als verpasster Wurf gezählt; ihn noch einmal als verpassten
+ * Aufsetzer zu zählen würde denselben Fehler zweimal berechnen und die beiden
+ * Kennzahlen unlesbar machen. Wer wissen will, wie viele Aufsetzer insgesamt
+ * durchgerutscht sind, multipliziert beide Quoten.
  */
 export function rateThrows(comparison: ThrowComparison): ThrowScore {
   const marks = comparison.matches.length + comparison.missed.length;
@@ -221,6 +278,20 @@ export function rateThrows(comparison: ThrowComparison): ThrowScore {
     atMost,
   );
 
+  // Beurteilbar ist nur, wo die Markierung etwas zum Aufsetzer sagt *und* die
+  // Auswertung eine Einordnung mitbringt.
+  const rated = comparison.matches.filter((match) => match.bounceCorrect !== null);
+  const bounceMarks = rated.filter((match) => match.mark.bounce === true);
+  const directMarks = rated.filter((match) => match.mark.bounce === false);
+  const bounceFound = bounceMarks.filter((match) => match.detected.bounce === true).length;
+  const directAsBounce = directMarks.filter((match) => match.detected.bounce === true).length;
+
+  const bounceRecall = check(
+    bounceMarks.length > 0 ? bounceFound / bounceMarks.length : null,
+    flightBenchmark.bounceRecall,
+    atLeast,
+  );
+
   return {
     marks,
     detections: matched + extra,
@@ -231,7 +302,20 @@ export function rateThrows(comparison: ThrowComparison): ThrowScore {
     recall,
     sideAccuracy,
     falseAlarms,
-    passed: recall.passed && sideAccuracy.passed && falseAlarms.passed,
+    bounceRated: rated.length,
+    bounceMarked: bounceMarks.length,
+    bounceFound,
+    directMarked: directMarks.length,
+    directAsBounce,
+    bounceRecall,
+    falseBounceShare: directMarks.length > 0 ? directAsBounce / directMarks.length : null,
+    passed:
+      recall.passed &&
+      sideAccuracy.passed &&
+      falseAlarms.passed &&
+      // Nicht bewertbar ist nicht durchgefallen: Ohne markierte Aufsetzer gibt
+      // es zu dieser Zahl schlicht nichts zu sagen.
+      (bounceRecall.value === null || bounceRecall.passed),
   };
 }
 

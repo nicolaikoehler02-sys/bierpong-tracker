@@ -121,6 +121,29 @@ export interface TableCalibration {
 }
 
 /**
+ * Die vordere Tischkante als Strecke im **ausgewerteten** Bild.
+ *
+ * Sie entsteht aus derselben Kalibrierung wie der Maßstab (siehe `toTableLine`
+ * in `calibration.ts`), beantwortet aber eine andere Frage: nicht „wie viele
+ * Zentimeter ist ein Bildpunkt", sondern „auf welcher Höhe im Bild liegt der
+ * Tisch". Genau das braucht die Aufsetzer-Erkennung, um eine Umkehr nahe der
+ * Tischebene von einer Umkehr mitten in der Luft zu unterscheiden.
+ *
+ * **Achtung, das ist die vordere Kante, nicht die Flugebene.** Der Ball fliegt
+ * ungefähr über der Mittellinie des Tisches und kommt dort auf; im Seitenbild
+ * liegt diese Stelle über der vorderen Kante, weil sie weiter von der Kamera
+ * entfernt ist. Wie weit darüber, hängt von Kamerahöhe und Tischbreite ab und
+ * ist hier bewusst nicht ausgerechnet — stattdessen gilt ein großzügiger
+ * Spielraum (`maxBounceAboveTable`).
+ */
+export interface TableLine {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+}
+
+/**
  * Der Maßstab einer Aufstellung: wie viele Zentimeter ein Bildpunkt bedeutet.
  *
  * Er entsteht aus der Kalibrierung (siehe `toScale` in `calibration.ts`) und
@@ -180,6 +203,44 @@ export interface ThrowMetrics {
 }
 
 /**
+ * Die Stelle, an der ein Aufsetzer auf der Tischplatte aufgekommen ist.
+ *
+ * **Der Zeitpunkt ist geschätzt und liegt in aller Regel zwischen zwei
+ * Bildern.** Bei 30 Bildern pro Sekunde dauert ein Bild 33 Millisekunden; der
+ * Ball ist in dieser Zeit rund einen halben Meter weit unterwegs. Dass der
+ * Aufprall ausgerechnet in dem Moment stattfindet, in dem die Kamera ein Bild
+ * macht, ist der Ausnahmefall. `at` ist deshalb kein Bildzeitpunkt, sondern der
+ * Schnittpunkt der Abwärts- mit der Aufwärtsbewegung (siehe `findBounce` in
+ * `bounce.ts`), und `x`/`y` sind die dazu gehörende Stelle im Bild — ein Punkt,
+ * der so in keinem einzigen Bild zu sehen ist.
+ */
+export interface BouncePoint {
+  /** Geschätzter Zeitpunkt des Aufpralls in Sekunden — zwischen zwei Bildern */
+  at: number;
+  /** Geschätzte Stelle des Aufpralls in Bildpunkten */
+  x: number;
+  y: number;
+  /** Bildnummer des letzten gesehenen Punktes vor dem Aufprall */
+  frameBefore: number;
+  /** Bildnummer des ersten gesehenen Punktes nach dem Aufprall */
+  frameAfter: number;
+  /** Abstieg vor dem Aufprall in Bildpunkten — vom Scheitel bis zum tiefsten gesehenen Punkt */
+  drop: number;
+  /** Anstieg nach dem Aufprall in Bildpunkten — der zweite Bogen */
+  rise: number;
+  /** Waagerechte Strecke nach dem Aufprall in Bildpunkten */
+  reboundSpan: number;
+  /**
+   * Abstand des Aufsetzpunktes zur vorderen Tischkante in Bildpunkten, positiv
+   * nach oben — `null`, wenn ohne Kalibrierung ausgewertet wurde.
+   *
+   * Ein positiver Wert ist der Normalfall: Der Ball kommt über der Mitte des
+   * Tisches auf, und die liegt im Seitenbild über der vorderen Kante.
+   */
+  tableGap: number | null;
+}
+
+/**
  * Ein erkannter Wurf: eine Flugbahn, die alle Prüfungen bestanden hat.
  *
  * Alles, was die Prüfungen nicht besteht — ein zurückrollender Ball, eine Hand,
@@ -200,6 +261,16 @@ export interface Throw {
   side: ThrowerSide;
   /** Die vollständige Punktfolge der Flugbahn, nach Bildnummer aufsteigend */
   points: FlightPoint[];
+  /**
+   * Aufsetzer (`true`) oder direkter Wurf (`false`).
+   *
+   * Jeder erkannte Wurf ist eingeordnet — es gibt kein „weiß nicht". Wo die
+   * Bahn keinen Knick nahe der Tischebene zeigt, gilt sie als direkt; das ist
+   * die häufigere und damit die sicherere Annahme.
+   */
+  bounce: boolean;
+  /** Der geschätzte Aufsetzpunkt — `null` bei einem direkten Wurf */
+  bouncePoint: BouncePoint | null;
   metrics: ThrowMetrics;
 }
 
