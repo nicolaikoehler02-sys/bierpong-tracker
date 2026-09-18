@@ -12,11 +12,13 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import {
   type FlightSettings,
+  type TableCalibration,
   type Throw,
   analyzeFlight,
   defaultFlightSettings,
   paintOverlay,
 } from "../lib/flight/index.ts";
+import { readCalibration } from "./lib/calibration.ts";
 import { decodeFrames, encodeVideo, probeVideo } from "./lib/ffmpeg.ts";
 import { candidatesToCsv, summarize, throwsToCsv, toJson } from "./lib/report.ts";
 
@@ -25,12 +27,15 @@ const HELP = `Aufnahme der Seitenkamera auswerten.
   npm run analyse -- <videodatei> [Optionen]
 
 Optionen:
-  --breite <px>         Breite, auf die die Bilder verkleinert werden (Standard: 640)
-  --fps <zahl>          Bilder pro Sekunde für die Auswertung (Standard: aus der Aufnahme)
-  --max-bilder <zahl>   Höchstzahl ausgewerteter Bilder (Standard: 1800)
-  --ausgabe <ordner>    Zielordner (Standard: analyse/<Name der Aufnahme>)
-  --ohne-video          Nur Tabelle und JSON schreiben, kein Overlay-Video
-  --hilfe               Diese Hilfe anzeigen
+  --breite <px>           Breite, auf die die Bilder verkleinert werden (Standard: 640)
+  --fps <zahl>            Bilder pro Sekunde für die Auswertung (Standard: aus der Aufnahme)
+  --max-bilder <zahl>     Höchstzahl ausgewerteter Bilder (Standard: 1800)
+  --kalibrierung <datei>  JSON mit zwei Punkten auf der vorderen Tischkante und der
+                          Tischlänge in Zentimetern. Ohne diese Angabe läuft die
+                          Auswertung in Bildpunkten weiter.
+  --ausgabe <ordner>      Zielordner (Standard: analyse/<Name der Aufnahme>)
+  --ohne-video            Nur Tabelle und JSON schreiben, kein Overlay-Video
+  --hilfe                 Diese Hilfe anzeigen
 `;
 
 async function main(): Promise<void> {
@@ -41,6 +46,7 @@ async function main(): Promise<void> {
       breite: { type: "string" },
       fps: { type: "string" },
       "max-bilder": { type: "string" },
+      kalibrierung: { type: "string" },
       ausgabe: { type: "string", short: "o" },
       "ohne-video": { type: "boolean", default: false },
       hilfe: { type: "boolean", short: "h", default: false },
@@ -80,7 +86,22 @@ async function main(): Promise<void> {
       `ausgewertet wird ${targetWidth}×${targetHeight} bei ${fps} Bildern/s.`,
   );
 
-  const settings: FlightSettings = { ...defaultFlightSettings, fps };
+  // Die Kalibrierung ist freiwillig: Ohne sie stehen alle Kennzahlen in
+  // Bildpunkten, die Erkennung selbst ändert sich dadurch nicht.
+  let calibration: TableCalibration | null = null;
+  if (values.kalibrierung) {
+    if (!existsSync(values.kalibrierung)) {
+      console.error(`Kalibrierung nicht gefunden: ${values.kalibrierung}`);
+      process.exitCode = 1;
+      return;
+    }
+    calibration = await readCalibration(values.kalibrierung);
+    // Markiert wird meist in der vollen Auflösung der Aufnahme, ausgewertet in
+    // der verkleinerten. Fehlt die Angabe, gilt die volle Breite als Bezug.
+    calibration.referenceWidth ??= info.width;
+  }
+
+  const settings: FlightSettings = { ...defaultFlightSettings, fps, calibration };
 
   console.log("Zerlege die Aufnahme in Bilder …");
   const frames = await decodeFrames(source, { width: targetWidth, height: targetHeight, fps, maxFrames });
@@ -93,6 +114,21 @@ async function main(): Promise<void> {
 
   console.log("Werte die Bilder aus …");
   const analysis = analyzeFlight(frames, settings);
+
+  if (analysis.scale) {
+    console.log(
+      `Kalibrierung: ${analysis.scale.tableLengthCm} cm Tischkante auf ` +
+        `${analysis.scale.edgeLength.toFixed(1)} Bildpunkten — ` +
+        `${analysis.scale.cmPerPixel.toFixed(3)} cm je Bildpunkt.`,
+    );
+  } else if (calibration) {
+    console.log(
+      "Die Kalibrierung ist unbrauchbar (Punkte zu dicht beieinander). " +
+        "Es wird in Bildpunkten gerechnet.",
+    );
+  } else {
+    console.log("Ohne Kalibrierung — alle Kennzahlen stehen in Bildpunkten.");
+  }
 
   await mkdir(outDir, { recursive: true });
   const throwsFile = path.join(outDir, `${name}.csv`);
@@ -116,7 +152,7 @@ async function main(): Promise<void> {
 
   const summary = summarize(analysis);
   console.log("");
-  printThrows(analysis.throws);
+  printThrows(analysis.throws, analysis.scale !== null);
   console.log("");
   console.log(`Bilder ausgewertet:      ${summary.frames}`);
   console.log(`Bilder Lernphase:        ${summary.learningFrames}`);
@@ -133,23 +169,35 @@ async function main(): Promise<void> {
   console.log(`  ${path.resolve(jsonFile)}`);
 }
 
-/** Die Wurftabelle direkt im Terminal — dieselben Zahlen wie in der CSV-Datei. */
-function printThrows(throws: readonly Throw[]): void {
+/**
+ * Die Wurftabelle direkt im Terminal — dieselben Zahlen wie in der CSV-Datei.
+ *
+ * Mit Kalibrierung stehen hier Zentimeter und Meter je Sekunde, ohne sie
+ * Bildpunkte. In der CSV-Datei stehen immer beide.
+ */
+function printThrows(throws: readonly Throw[], calibrated: boolean): void {
   if (throws.length === 0) {
     console.log("Kein Wurf erkannt.");
     return;
   }
   console.log("Nr  Abwurf    Dauer   Seite    Scheitel     Weite       Tempo");
   for (const found of throws) {
+    const { metrics } = found;
     console.log(
       [
         String(found.nr).padStart(2),
         `${found.startedAt.toFixed(2)} s`.padStart(8),
-        `${found.metrics.duration.toFixed(2)} s`.padStart(7),
+        `${metrics.duration.toFixed(2)} s`.padStart(7),
         found.side.padEnd(8),
-        `${found.metrics.peakHeight.toFixed(0)} px`.padStart(8),
-        `${found.metrics.span.toFixed(0)} px`.padStart(8),
-        `${found.metrics.speed.toFixed(0)} px/s`.padStart(10),
+        calibrated
+          ? `${metrics.peakHeightCm?.toFixed(0)} cm`.padStart(8)
+          : `${metrics.peakHeight.toFixed(0)} px`.padStart(8),
+        calibrated
+          ? `${metrics.spanCm?.toFixed(0)} cm`.padStart(8)
+          : `${metrics.span.toFixed(0)} px`.padStart(8),
+        calibrated
+          ? `${metrics.speedMps?.toFixed(1)} m/s`.padStart(10)
+          : `${metrics.speed.toFixed(0)} px/s`.padStart(10),
       ].join("  "),
     );
   }

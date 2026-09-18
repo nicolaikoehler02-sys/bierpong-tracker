@@ -1,3 +1,5 @@
+import type { TableCalibration } from "./types.ts";
+
 /**
  * Alle Stellschrauben der Seitenkamera-Auswertung an einer Stelle.
  *
@@ -79,6 +81,33 @@ export interface FlightSettings {
   minThrowSpeed: number;
   /** Größte waagerechte Geschwindigkeit eines Wurfs in Bildpunkten je Sekunde */
   maxThrowSpeed: number;
+
+  // --- Kalibrierung: aus Bildpunkten werden Zentimeter ---
+  /**
+   * Die Kalibrierung der Aufstellung: zwei markierte Punkte auf der vorderen
+   * Tischkante plus die Tischlänge in Zentimetern (siehe `TableCalibration`).
+   *
+   * `null` ist der Normalfall und ausdrücklich erlaubt: Ohne Kalibrierung läuft
+   * die Auswertung unverändert weiter, nur stehen alle Kennzahlen in
+   * Bildpunkten statt in Zentimetern. Die Erkennung selbst hängt nicht davon ab
+   * — die Kalibrierung wird erst ganz am Ende auf die fertigen Kennzahlen
+   * angewendet.
+   *
+   * Sie steht hier in den Einstellungen und nicht als zusätzlicher Parameter,
+   * damit die Naht des Erkennungskerns eine bleibt: Bilderfolge plus
+   * Einstellungen hinein, Ergebnis heraus.
+   */
+  calibration: TableCalibration | null;
+  /**
+   * Mindestabstand der beiden markierten Kantenpunkte in Bildpunkten, damit die
+   * Kalibrierung überhaupt gilt.
+   *
+   * Zwei dicht beieinander gesetzte Punkte ergeben einen wilden Maßstab: Ein
+   * Bildpunkt Ungenauigkeit beim Markieren schlägt dann voll auf jeden
+   * Zentimeterwert durch. Darunter wird die Kalibrierung verworfen und es
+   * bleibt bei Bildpunkten.
+   */
+  minCalibrationSpan: number;
 }
 
 export const defaultFlightSettings: FlightSettings = {
@@ -152,4 +181,12 @@ export const defaultFlightSettings: FlightSettings = {
   // Schneller als 10 Meter je Sekunde wirft niemand einen Tischtennisball über
   // einen Biertisch; darüber sind zwei fremde Flecken zu einer Bahn verknüpft.
   maxThrowSpeed: 2200,
+
+  // Ohne Angabe wird in Bildpunkten gerechnet. Das ist der Standard und kein
+  // Mangel: Die Kalibrierung gehört zur Aufstellung, nicht zur Erkennung.
+  calibration: null,
+  // Die Tischkante füllt im Seitenbild fast die ganze Breite — bei 640
+  // Bildpunkten also gut 500. Ein Achtel davon ist die Grenze, unterhalb derer
+  // offensichtlich nicht die Kante markiert wurde, sondern etwas anderes.
+  minCalibrationSpan: 60,
 };

@@ -83,12 +83,72 @@ export interface FlightPoint {
  */
 export type ThrowerSide = "links" | "rechts";
 
+/** Ein von Hand markierter Punkt im Bild, in Bildpunkten. */
+export interface CalibrationPoint {
+  x: number;
+  y: number;
+}
+
 /**
- * Einfache Kennzahlen einer Flugbahn, alle in **Bildpunkten**.
+ * Die Kalibrierung einer Aufstellung: zwei markierte Punkte auf der **vorderen
+ * Tischkante** und die tatsächliche Länge dazwischen in Zentimetern.
  *
- * Bildpunkte und nicht Zentimeter: Dafür bräuchte es die Kalibrierung der
- * Tischkante, und die ist ein eigener Schritt. Die Zahlen sind trotzdem schon
- * untereinander vergleichbar, solange dieselbe Aufnahmegröße ausgewertet wird.
+ * Zwei Punkte plus eine bekannte Länge sind die robusteste Angabe, die ohne
+ * Bildverarbeitung auskommt: Die vordere Tischkante ist im Seitenbild die
+ * längste Strecke, deren wahres Maß wir kennen, und je länger die Strecke, desto
+ * weniger schlägt ein Bildpunkt Ungenauigkeit beim Markieren durch. Gefunden
+ * wird die Kante ausdrücklich nicht — sie wird angegeben.
+ *
+ * Ein Turniertisch ist 2,40 m lang (`TOURNAMENT_TABLE_LENGTH_CM`), unser
+ * Trainingstisch weicht ab. Deshalb steht die Länge immer dabei.
+ */
+export interface TableCalibration {
+  /** Erster markierter Punkt auf der vorderen Tischkante */
+  edgeStart: CalibrationPoint;
+  /** Zweiter markierter Punkt auf der vorderen Tischkante */
+  edgeEnd: CalibrationPoint;
+  /** Tatsächliche Länge zwischen den beiden Punkten in Zentimetern */
+  tableLengthCm: number;
+  /**
+   * Bildbreite in Bildpunkten, in der die beiden Punkte markiert wurden.
+   *
+   * Nur nötig, wenn in einer anderen Größe markiert als ausgewertet wird — das
+   * Auswertungsskript verkleinert die Aufnahme standardmäßig auf 640 Bildpunkte
+   * Breite, markiert wird aber meist in der vollen Auflösung. Fehlt die Angabe,
+   * gelten die Punkte als im ausgewerteten Bild markiert.
+   */
+  referenceWidth?: number;
+}
+
+/**
+ * Der Maßstab einer Aufstellung: wie viele Zentimeter ein Bildpunkt bedeutet.
+ *
+ * Er entsteht aus der Kalibrierung (siehe `toScale` in `calibration.ts`) und
+ * gilt für die ganze Aufnahme, weil Kamera und Tisch zwischendurch nicht bewegt
+ * werden.
+ */
+export interface FlightScale {
+  /** Zentimeter je Bildpunkt des ausgewerteten Bildes */
+  cmPerPixel: number;
+  /** Abstand der beiden markierten Kantenpunkte im ausgewerteten Bild, in Bildpunkten */
+  edgeLength: number;
+  /** Die angegebene Tischlänge in Zentimetern — dieselbe Zahl wie in der Kalibrierung */
+  tableLengthCm: number;
+  /**
+   * Faktor, mit dem die markierten Punkte auf die ausgewertete Bildgröße
+   * umgerechnet wurden. 1 heißt: markiert wurde in derselben Größe, in der auch
+   * ausgewertet wird.
+   */
+  imageFactor: number;
+}
+
+/**
+ * Einfache Kennzahlen einer Flugbahn.
+ *
+ * Die Bildpunkt-Werte gibt es immer; sie sind untereinander vergleichbar,
+ * solange dieselbe Aufnahmegröße ausgewertet wird. Die echten Einheiten stehen
+ * nur daneben, wenn eine Kalibrierung vorliegt — ohne sie bleibt es bei
+ * Bildpunkten, und die Erkennung selbst ändert sich dadurch nicht.
  */
 export interface ThrowMetrics {
   /** Dauer vom Abwurf bis zum letzten gesehenen Punkt in Sekunden */
@@ -105,6 +165,18 @@ export interface ThrowMetrics {
   speed: number;
   /** Waagerechte Geschwindigkeit in Bildpunkten je Sekunde */
   speedX: number;
+
+  // --- Nur mit Kalibrierung (siehe `calibration.ts`) ---
+  /** Höhe des Scheitels über dem Abwurfpunkt in Zentimetern */
+  peakHeightCm?: number;
+  /** Länge der Bahn in Zentimetern */
+  distanceCm?: number;
+  /** Waagerechte Weite zwischen Abwurf und letztem Punkt in Zentimetern */
+  spanCm?: number;
+  /** Geschwindigkeit entlang der Bahn in Metern je Sekunde */
+  speedMps?: number;
+  /** Waagerechte Geschwindigkeit in Metern je Sekunde */
+  speedXMps?: number;
 }
 
 /**
@@ -144,4 +216,12 @@ export interface FlightAnalysis {
   frames: FrameResult[];
   /** Alle erkannten Würfe der Aufnahme, nach Abwurfzeitpunkt sortiert */
   throws: Throw[];
+  /**
+   * Der Maßstab, mit dem gerechnet wurde — `null`, wenn ohne Kalibrierung
+   * ausgewertet wurde und alle Kennzahlen in Bildpunkten stehen.
+   *
+   * Er wandert mit den Ergebnissen mit, damit später nachvollziehbar ist, auf
+   * welcher Grundlage die Zentimeter entstanden sind.
+   */
+  scale: FlightScale | null;
 }

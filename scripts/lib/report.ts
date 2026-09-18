@@ -11,9 +11,10 @@ const SEPARATOR = ";";
  * Die Wurftabelle — eine Zeile je erkanntem Wurf. Das ist die Tabelle, um die
  * es geht: Zeitpunkt, Seite und die Kennzahlen der Flugbahn.
  *
- * Alle Längen und Geschwindigkeiten stehen in Bildpunkten beziehungsweise
- * Bildpunkten je Sekunde — Zentimeter verlangen die Kalibrierung der
- * Tischkante und kommen später dazu.
+ * Die Spalten in Bildpunkten stehen immer. Die Spalten in Zentimetern und
+ * Metern je Sekunde stehen daneben und bleiben leer, wenn ohne Kalibrierung
+ * ausgewertet wurde — so hat die Tabelle jedes Mal dieselben Spalten und lässt
+ * sich zwischen Aufnahmen vergleichen.
  */
 const THROW_COLUMNS = [
   "nr",
@@ -29,6 +30,11 @@ const THROW_COLUMNS = [
   "ende_x",
   "ende_y",
   "scheitel_s",
+  "scheitelhoehe_cm",
+  "weite_cm",
+  "tempo_m_s",
+  "tempo_waagerecht_m_s",
+  "strecke_cm",
   "scheitelhoehe_px",
   "strecke_px",
   "weite_px",
@@ -41,12 +47,13 @@ export function throwsToCsv(throws: readonly Throw[]): string {
   for (const found of throws) {
     const first = found.points[0];
     const last = found.points[found.points.length - 1];
+    const { metrics } = found;
     lines.push(
       [
         found.nr,
         found.startedAt.toFixed(3),
         found.endedAt.toFixed(3),
-        found.metrics.duration.toFixed(3),
+        metrics.duration.toFixed(3),
         found.side,
         found.startFrame,
         found.endFrame,
@@ -55,16 +62,26 @@ export function throwsToCsv(throws: readonly Throw[]): string {
         first.y.toFixed(1),
         last.x.toFixed(1),
         last.y.toFixed(1),
-        found.metrics.peakAt.toFixed(3),
-        found.metrics.peakHeight.toFixed(1),
-        found.metrics.distance.toFixed(1),
-        found.metrics.span.toFixed(1),
-        found.metrics.speed.toFixed(1),
-        found.metrics.speedX.toFixed(1),
+        metrics.peakAt.toFixed(3),
+        optional(metrics.peakHeightCm, 1),
+        optional(metrics.spanCm, 1),
+        optional(metrics.speedMps, 2),
+        optional(metrics.speedXMps, 2),
+        optional(metrics.distanceCm, 1),
+        metrics.peakHeight.toFixed(1),
+        metrics.distance.toFixed(1),
+        metrics.span.toFixed(1),
+        metrics.speed.toFixed(1),
+        metrics.speedX.toFixed(1),
       ].join(SEPARATOR),
     );
   }
   return `${lines.join("\r\n")}\r\n`;
+}
+
+/** Ein Wert, den es nur mit Kalibrierung gibt — ohne sie bleibt die Zelle leer. */
+function optional(value: number | undefined, digits: number): string {
+  return value === undefined ? "" : value.toFixed(digits);
 }
 
 /**
@@ -142,6 +159,13 @@ export interface ReportMeta {
  * eins zu eins den Typen des Erkennungskerns, damit die Folgeschritte sie
  * ohne Umrechnung einlesen können — einschließlich der vollständigen
  * Punktfolge jeder Flugbahn.
+ *
+ * Kalibrierung und daraus errechneter Maßstab stehen mit in der Datei: Ohne sie
+ * wäre später nicht mehr nachvollziehbar, auf welcher Grundlage die Zentimeter
+ * entstanden sind. `calibration` ist das, was angegeben wurde (steht ohnehin
+ * schon in `settings`, hier aber an sichtbarer Stelle), `scale` das, womit
+ * tatsächlich gerechnet wurde — beides `null`, wenn in Bildpunkten ausgewertet
+ * wurde.
  */
 export function toJson(analysis: FlightAnalysis, meta: ReportMeta): string {
   return `${JSON.stringify(
@@ -149,6 +173,8 @@ export function toJson(analysis: FlightAnalysis, meta: ReportMeta): string {
       source: meta.source,
       createdAt: new Date().toISOString(),
       frame: { width: meta.width, height: meta.height, count: analysis.frames.length },
+      calibration: meta.settings.calibration,
+      scale: analysis.scale,
       settings: meta.settings,
       throws: analysis.throws,
       results: analysis.frames,

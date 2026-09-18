@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeFlight } from "./detector.ts";
 import { type Rgb, createFrame, fillDisc, fillRect } from "./frame.ts";
 import { type FlightSettings, defaultFlightSettings } from "./settings.ts";
-import type { FlightFrame, FrameResult } from "./types.ts";
+import type { FlightFrame, FrameResult, TableCalibration } from "./types.ts";
 
 const WIDTH = 240;
 const HEIGHT = 180;
@@ -171,7 +171,7 @@ describe("analyzeFlight: Kandidaten je Bild", () => {
   });
 
   it("gibt für eine leere Bilderfolge ein leeres Ergebnis zurück", () => {
-    expect(analyzeFlight([], settings)).toEqual({ frames: [], throws: [] });
+    expect(analyzeFlight([], settings)).toEqual({ frames: [], throws: [], scale: null });
   });
 });
 
@@ -343,5 +343,115 @@ describe("analyzeFlight: Würfe aus Flugbahnen", () => {
     const resting = Array.from({ length: 40 }, () => ({ x: 120, y: 150 }));
 
     expect(throwsOf(single(resting))).toEqual([]);
+  });
+});
+
+/**
+ * Die Kalibrierung dieser Bildfolgen: eine vordere Tischkante von x 20 bis
+ * x 220 — 200 Bildpunkte, die 240 cm bedeuten. Das sind genau 1,2 cm je
+ * Bildpunkt, und damit lässt sich jeder erwartete Wert von Hand nachrechnen.
+ */
+const CALIBRATION: TableCalibration = {
+  edgeStart: { x: 20, y: 170 },
+  edgeEnd: { x: 220, y: 170 },
+  tableLengthCm: 240,
+};
+const CM_PER_PIXEL = 240 / 200;
+
+const calibrated: FlightSettings = { ...settings, calibration: CALIBRATION };
+
+/**
+ * Ein Flugbogen mit bekannter Höhe: 100 Bildpunkte über dem Abwurfpunkt. Beim
+ * Maßstab dieser Aufstellung sind das 120 cm.
+ */
+function knownArc(): FlightFrame[] {
+  return single(arc(20, 220, 12, 160, 100));
+}
+
+describe("analyzeFlight: echte Einheiten aus der Kalibrierung", () => {
+  it("macht aus einer Bahn mit bekannter Höhe die erwartete Bogenhöhe in Zentimetern", () => {
+    const analysis = analyzeFlight(knownArc(), calibrated);
+
+    expect(analysis.throws).toHaveLength(1);
+    const { metrics } = analysis.throws[0];
+
+    // Gemessen wird der Scheitel über dem ersten gesehenen Punkt; das sind bei
+    // dieser Bahn rund 100 Bildpunkte.
+    expect(metrics.peakHeight).toBeGreaterThan(90);
+    expect(metrics.peakHeight).toBeLessThan(110);
+
+    // Und in Zentimetern: rund 120, also die 100 Bildpunkte mal 1,2.
+    expect(metrics.peakHeightCm).toBeGreaterThan(108);
+    expect(metrics.peakHeightCm).toBeLessThan(132);
+    expect(metrics.peakHeightCm).toBeCloseTo(metrics.peakHeight * CM_PER_PIXEL, 6);
+  });
+
+  it("gibt Weite in Zentimetern und Tempo in Metern je Sekunde an", () => {
+    const { throws } = analyzeFlight(knownArc(), calibrated);
+    const { metrics } = throws[0];
+
+    // 200 Bildpunkte Weite sind 240 cm — die ganze Tischlänge.
+    expect(metrics.spanCm).toBeGreaterThan(228);
+    expect(metrics.spanCm).toBeLessThan(252);
+    expect(metrics.spanCm).toBeCloseTo(metrics.span * CM_PER_PIXEL, 6);
+    expect(metrics.distanceCm).toBeCloseTo(metrics.distance * CM_PER_PIXEL, 6);
+
+    // Die Bahn dauert 11/30 Sekunden; 240 cm in gut einer Drittelsekunde sind
+    // rund 6,5 Meter je Sekunde waagerecht.
+    expect(metrics.speedXMps).toBeGreaterThan(5);
+    expect(metrics.speedXMps).toBeLessThan(8);
+    expect(metrics.speedXMps).toBeCloseTo((metrics.speedX * CM_PER_PIXEL) / 100, 6);
+    expect(metrics.speedMps).toBeGreaterThan(metrics.speedXMps ?? 0);
+  });
+
+  it("legt den benutzten Maßstab zum Ergebnis, damit er nachvollziehbar bleibt", () => {
+    const { scale } = analyzeFlight(knownArc(), calibrated);
+
+    expect(scale?.cmPerPixel).toBeCloseTo(CM_PER_PIXEL, 6);
+    expect(scale?.edgeLength).toBeCloseTo(200, 6);
+    expect(scale?.tableLengthCm).toBe(240);
+  });
+
+  it("erkennt ohne Kalibrierung dieselben Würfe, nur ohne Zentimeter", () => {
+    const frames = knownArc();
+    const ohne = analyzeFlight(frames, settings);
+    const mit = analyzeFlight(frames, calibrated);
+
+    expect(ohne.scale).toBeNull();
+    expect(ohne.throws).toHaveLength(1);
+    // Die Erkennung hängt nicht an der Kalibrierung: gleiche Zahl, gleiche
+    // Seite, gleiche Bildpunkt-Werte.
+    expect(ohne.throws.length).toBe(mit.throws.length);
+    expect(ohne.throws[0].side).toBe(mit.throws[0].side);
+    expect(ohne.throws[0].metrics.peakHeight).toBeCloseTo(mit.throws[0].metrics.peakHeight, 6);
+    expect(ohne.throws[0].metrics.speed).toBeCloseTo(mit.throws[0].metrics.speed, 6);
+
+    // Nur die echten Einheiten fehlen.
+    expect(ohne.throws[0].metrics.peakHeightCm).toBeUndefined();
+    expect(ohne.throws[0].metrics.spanCm).toBeUndefined();
+    expect(ohne.throws[0].metrics.speedMps).toBeUndefined();
+  });
+
+  it("bleibt bei Bildpunkten, wenn die Kalibrierung unbrauchbar ist", () => {
+    // Beide Punkte auf derselben Stelle: daraus entsteht kein Maßstab.
+    const kaputt: FlightSettings = {
+      ...settings,
+      calibration: { ...CALIBRATION, edgeEnd: { x: 22, y: 170 } },
+    };
+    const analysis = analyzeFlight(knownArc(), kaputt);
+
+    expect(analysis.scale).toBeNull();
+    expect(analysis.throws).toHaveLength(1);
+    expect(analysis.throws[0].metrics.peakHeightCm).toBeUndefined();
+  });
+
+  it("behält die Bildpunkt-Werte auch mit Kalibrierung", () => {
+    const { throws } = analyzeFlight(knownArc(), calibrated);
+    const { metrics } = throws[0];
+
+    expect(metrics.peakHeight).toBeGreaterThan(0);
+    expect(metrics.span).toBeGreaterThan(0);
+    expect(metrics.speed).toBeGreaterThan(0);
+    expect(metrics.distance).toBeGreaterThan(0);
   });
 });

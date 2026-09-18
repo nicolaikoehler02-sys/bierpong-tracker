@@ -1,4 +1,5 @@
 import { Background } from "./background.ts";
+import { toScale } from "./calibration.ts";
 import { findCandidates } from "./candidates.ts";
 import { type FlightSettings, defaultFlightSettings } from "./settings.ts";
 import { buildTracks } from "./tracks.ts";
@@ -24,14 +25,21 @@ import type { FlightAnalysis, FlightFrame, FrameResult } from "./types.ts";
  * welchem Wurf gehört, entscheidet erst der zweite Teil über die ganze
  * Aufnahme: Die Kandidaten werden zu Flugbahnen verkettet (siehe `buildTracks`),
  * und aus den tauglichen Bahnen werden Würfe (siehe `toThrows`).
+ *
+ * Liegt in den Einstellungen eine Kalibrierung, stehen die Kennzahlen der Würfe
+ * zusätzlich in Zentimetern und Metern je Sekunde (siehe `toScale`). Sie greift
+ * ausschließlich am Ende, auf die fertigen Kennzahlen: Welche Würfe gefunden
+ * werden, ändert sie nicht — ohne Kalibrierung kommen dieselben Würfe heraus,
+ * nur in Bildpunkten.
  */
 export function analyzeFlight(
   frames: readonly FlightFrame[],
   settings: FlightSettings = defaultFlightSettings,
 ): FlightAnalysis {
-  if (frames.length === 0) return { frames: [], throws: [] };
+  if (frames.length === 0) return { frames: [], throws: [], scale: null };
 
   const { width, height } = frames[0];
+  const scale = toScale(settings.calibration, width, settings);
   const background = new Background(width, height, settings);
   const grid = {
     gridWidth: background.gridWidth,
@@ -96,5 +104,9 @@ export function analyzeFlight(
     });
   }
 
-  return { frames: results, throws: toThrows(buildTracks(results, settings), settings) };
+  return {
+    frames: results,
+    throws: toThrows(buildTracks(results, settings), settings, scale),
+    scale,
+  };
 }

@@ -1,6 +1,7 @@
+import { pixelsPerSecondToMetersPerSecond, pixelsToCm } from "./calibration.ts";
 import type { FlightSettings } from "./settings.ts";
 import type { FlightTrack } from "./tracks.ts";
-import type { FlightPoint, Throw, ThrowMetrics } from "./types.ts";
+import type { FlightPoint, FlightScale, Throw, ThrowMetrics } from "./types.ts";
 
 /**
  * Behält von allen Flugbahnen nur die, die einen Wurf beschreiben.
@@ -21,11 +22,19 @@ import type { FlightPoint, Throw, ThrowMetrics } from "./types.ts";
  *
  * Aus der Richtung ergibt sich die Seite: Ein Flug von links nach rechts kommt
  * vom linken Werfer, und umgekehrt. Namen kennt der Kern bewusst nicht.
+ *
+ * Der Maßstab kommt erst ganz am Ende dazu und nur für die Kennzahlen: Keine
+ * der vier Prüfungen sieht ihn an. Genau deshalb erkennt der Kern ohne
+ * Kalibrierung dieselben Würfe wie mit — nur eben in Bildpunkten.
  */
-export function toThrows(tracks: readonly FlightTrack[], settings: FlightSettings): Throw[] {
+export function toThrows(
+  tracks: readonly FlightTrack[],
+  settings: FlightSettings,
+  scale: FlightScale | null = null,
+): Throw[] {
   const throws: Throw[] = [];
   for (const track of tracks) {
-    const found = toThrow(track, settings);
+    const found = toThrow(track, settings, scale);
     if (found) throws.push(found);
   }
 
@@ -37,7 +46,11 @@ export function toThrows(tracks: readonly FlightTrack[], settings: FlightSetting
 }
 
 /** Prüft eine einzelne Bahn und rechnet ihre Kennzahlen aus. */
-function toThrow(track: FlightTrack, settings: FlightSettings): Throw | null {
+function toThrow(
+  track: FlightTrack,
+  settings: FlightSettings,
+  scale: FlightScale | null,
+): Throw | null {
   const points = track.points;
   if (points.length < settings.minThrowPoints) return null;
 
@@ -69,21 +82,24 @@ function toThrow(track: FlightTrack, settings: FlightSettings): Throw | null {
     endFrame: last.index,
     side: direction > 0 ? "links" : "rechts",
     points: points.slice(),
-    metrics: measure(points, duration, Math.abs(spanX)),
+    metrics: measure(points, duration, Math.abs(spanX), scale),
   };
 }
 
 /**
- * Die Kennzahlen einer Flugbahn, alle in Bildpunkten.
+ * Die Kennzahlen einer Flugbahn — immer in Bildpunkten, mit Kalibrierung
+ * zusätzlich in Zentimetern und Metern je Sekunde.
  *
- * Die Scheitelhöhe zählt vom Abwurfpunkt aus nach oben. Sie in Zentimetern
- * anzugeben verlangt die Kalibrierung der Tischkante und ist deshalb ein
- * eigener Schritt; untereinander vergleichbar sind die Werte auch so.
+ * Die Scheitelhöhe zählt vom Abwurfpunkt aus nach oben. Die Bildpunkt-Werte
+ * bleiben auch mit Kalibrierung stehen: Sie sind die gemessenen Zahlen, die
+ * Zentimeter nur die daraus abgeleiteten. Wird später ein anderer Maßstab
+ * angesetzt, muss dafür nichts neu ausgewertet werden.
  */
 function measure(
   points: readonly FlightPoint[],
   duration: number,
   span: number,
+  scale: FlightScale | null,
 ): ThrowMetrics {
   let distance = 0;
   let peak = points[0];
@@ -95,13 +111,29 @@ function measure(
     if (points[i].y < peak.y) peak = points[i];
   }
 
-  return {
+  const peakHeight = Math.max(0, points[0].y - peak.y);
+  const speed = distance / duration;
+  const speedX = span / duration;
+
+  const metrics: ThrowMetrics = {
     duration,
-    peakHeight: Math.max(0, points[0].y - peak.y),
+    peakHeight,
     peakAt: peak.at,
     distance,
     span,
-    speed: distance / duration,
-    speedX: span / duration,
+    speed,
+    speedX,
   };
+  if (!scale) return metrics;
+
+  // Achtung: Der Maßstab gilt in der Ebene der vorderen Tischkante, der Ball
+  // fliegt aber rund eine halbe Tischbreite dahinter. Alle folgenden Werte
+  // fallen dadurch systematisch etwas zu klein aus — die Größenordnung des
+  // Fehlers steht bei `toScale` in `calibration.ts`.
+  metrics.peakHeightCm = pixelsToCm(peakHeight, scale);
+  metrics.distanceCm = pixelsToCm(distance, scale);
+  metrics.spanCm = pixelsToCm(span, scale);
+  metrics.speedMps = pixelsPerSecondToMetersPerSecond(speed, scale);
+  metrics.speedXMps = pixelsPerSecondToMetersPerSecond(speedX, scale);
+  return metrics;
 }

@@ -17,10 +17,17 @@
  * 5. **Zurückrollender Ball** — läuft langsam und flach über den Tisch zurück
  *    und darf kein Wurf sein.
  *
+ * Dazu liegt im Bild eine **sichtbare vordere Tischkante** mit zwei hellen
+ * Marken an ihren Enden. Ihre wahre Länge ist hier bekannt, weil wir das Bild
+ * selbst zeichnen — deshalb wird neben der Aufnahme gleich die passende
+ * Kalibrierungsdatei geschrieben, mit der sich der ganze Weg bis zu Zentimetern
+ * und Metern je Sekunde durchspielen lässt.
+ *
  *   npm run testvideo -- [zieldatei]
  */
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { TOURNAMENT_TABLE_LENGTH_CM, type TableCalibration } from "../lib/flight/index.ts";
 import { run, toolPath } from "./lib/ffmpeg.ts";
 
 const WIDTH = 640;
@@ -44,6 +51,32 @@ const PERSON = { width: 60, height: 220, start: 7.5, end: 11.5 };
 
 /** Höhe der Tischebene im Bild — dort beginnt und endet jeder Flugbogen. */
 const TABLE_Y = 300;
+
+/**
+ * Die vordere Tischkante im Bild.
+ *
+ * Sie liegt knapp unter der Tischebene, damit sie keinem Ball ins Gehege kommt,
+ * und ist die einzige Strecke im Bild, deren wahres Maß feststeht: `LENGTH_CM`.
+ * Ein Turniertisch ist 2,40 m lang — genau der Wert, mit dem hier gezeichnet
+ * wird, damit die Zahlen der Auswertung von Hand nachzurechnen sind.
+ *
+ * Maßstab dieser Aufnahme: 240 cm auf 560 Bildpunkten, also rund 0,43 cm je
+ * Bildpunkt. Ein Flugbogen mit 180 Bildpunkten Scheitelhöhe ist damit gut 77 cm
+ * hoch, und 500 Bildpunkte Weite sind rund 214 cm.
+ */
+const TABLE_EDGE = {
+  left: 40,
+  right: 600,
+  y: 314,
+  thickness: 6,
+  /** Farbe der Kante: helleres Holz, deutlich von der dunklen Wand abgesetzt */
+  color: "0x8c6f4a",
+  /** Wahre Länge zwischen den beiden Marken in Zentimetern */
+  LENGTH_CM: TOURNAMENT_TABLE_LENGTH_CM,
+};
+
+/** Die beiden hellen Marken an den Enden der Kante — daran wird von Hand markiert. */
+const EDGE_MARK = { width: 4, height: 18, color: "0xd9c9a3" };
 
 interface Ball {
   from: number;
@@ -88,6 +121,34 @@ function overlayFor(ball: Ball): string {
   return `overlay=x='${x}':y='${y}':enable='between(t,${ball.start},${ball.end})'`;
 }
 
+/**
+ * Die Tischkante und ihre beiden Endmarken als ffmpeg-Ausdruck.
+ *
+ * Sie wird in den Hintergrund gezeichnet und steht still: Der Erkennungskern
+ * lernt sie damit weg und macht aus ihr keinen Ball-Kandidaten.
+ */
+function drawTableEdge(): string {
+  const mark = (x: number) =>
+    `drawbox=x=${x - EDGE_MARK.width / 2}:y=${TABLE_EDGE.y - (EDGE_MARK.height - TABLE_EDGE.thickness) / 2}` +
+    `:w=${EDGE_MARK.width}:h=${EDGE_MARK.height}:color=${EDGE_MARK.color}@1:t=fill`;
+  return [
+    `drawbox=x=${TABLE_EDGE.left}:y=${TABLE_EDGE.y}:w=${TABLE_EDGE.right - TABLE_EDGE.left}` +
+      `:h=${TABLE_EDGE.thickness}:color=${TABLE_EDGE.color}@1:t=fill`,
+    mark(TABLE_EDGE.left),
+    mark(TABLE_EDGE.right),
+  ].join(",");
+}
+
+/** Die Kalibrierung, die genau zu dieser gezeichneten Tischkante gehört. */
+function calibration(): TableCalibration {
+  return {
+    edgeStart: { x: TABLE_EDGE.left, y: TABLE_EDGE.y },
+    edgeEnd: { x: TABLE_EDGE.right, y: TABLE_EDGE.y },
+    tableLengthCm: TABLE_EDGE.LENGTH_CM,
+    referenceWidth: WIDTH,
+  };
+}
+
 /** Die Person geht gleichmäßig durchs Bild und tritt an beiden Rändern halb heraus. */
 function overlayForPerson(): string {
   const u = `((t-${PERSON.start})/${PERSON.end - PERSON.start})`;
@@ -113,7 +174,7 @@ async function main(): Promise<void> {
   // Rauschen auf den Hintergrund, dann Bälle und Person darüber, zuletzt der
   // Lichtwechsel über das fertige Bild — so trifft er alles gleichzeitig.
   const overlays = [...BALLS.map(overlayFor), overlayForPerson()];
-  const steps = ["[0:v]noise=alls=6:allf=t[bg0]"];
+  const steps = [`[0:v]noise=alls=6:allf=t,${drawTableEdge()}[bg0]`];
   overlays.forEach((overlay, index) => {
     steps.push(`[bg${index}][${index + 1}:v]${overlay}[bg${index + 1}]`);
   });
@@ -139,17 +200,40 @@ async function main(): Promise<void> {
     target,
   ]);
 
+  // Die Kalibrierung gleich mit ausliefern: Bei einer gezeichneten Aufnahme
+  // kennen wir die wahre Tischlänge, bei einer echten muss sie gemessen werden.
+  const calibrationFile = `${target.replace(/\.[^.\\/]+$/, "")}-kalibrierung.json`;
+  await writeFile(calibrationFile, `${JSON.stringify(calibration(), null, 2)}\n`, "utf8");
+
+  const edgeLength = TABLE_EDGE.right - TABLE_EDGE.left;
+  const cmPerPixel = TABLE_EDGE.LENGTH_CM / edgeLength;
+
   console.log(`Testaufnahme geschrieben: ${path.resolve(target)}`);
   console.log(`${WIDTH}×${HEIGHT}, ${FPS} Bilder/s, ${DURATION} Sekunden.`);
   console.log(`  leerer Vorlauf bis ${ARCS[0].start} s`);
   for (const arc of ARCS) {
     const blur = arc.width > arc.height ? " (Streifen wie bei Bewegungsunschärfe)" : "";
     const side = arc.to > arc.from ? "von links" : "von rechts";
-    console.log(`  Flugbogen ${arc.start}–${arc.end} s, ${side}${blur}`);
+    const rise = (arc.rise * cmPerPixel).toFixed(0);
+    const span = (Math.abs(arc.to - arc.from) * cmPerPixel).toFixed(0);
+    console.log(
+      `  Flugbogen ${arc.start}–${arc.end} s, ${side}${blur} — Scheitel ${arc.rise} px = ${rise} cm, Weite ${span} cm`,
+    );
   }
   console.log(`  Person läuft durchs Bild ${PERSON.start}–${PERSON.end} s`);
   console.log(`  Lichtwechsel bei ${LIGHT_AT} s`);
   console.log(`  zurückrollender Ball ${ROLL.start}–${ROLL.end} s (kein Wurf)`);
+  console.log("");
+  console.log(
+    `Tischkante: x ${TABLE_EDGE.left} bis ${TABLE_EDGE.right} bei y ${TABLE_EDGE.y} — ` +
+      `${edgeLength} Bildpunkte entsprechen ${TABLE_EDGE.LENGTH_CM} cm (${cmPerPixel.toFixed(3)} cm je Bildpunkt).`,
+  );
+  console.log(`Kalibrierung geschrieben: ${path.resolve(calibrationFile)}`);
+  console.log("");
+  console.log("Auswerten mit echten Einheiten:");
+  console.log(`  npm run analyse -- ${target} --kalibrierung ${calibrationFile}`);
+  console.log("Auswerten ohne Kalibrierung (alles in Bildpunkten):");
+  console.log(`  npm run analyse -- ${target}`);
 }
 
 main().catch((error: unknown) => {
