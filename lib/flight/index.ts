@@ -14,6 +14,18 @@ export {
   toScale,
 } from "./calibration.ts";
 export { type FlightSettings, defaultFlightSettings } from "./settings.ts";
+export {
+  type BenchmarkCheck,
+  type DetectedThrow,
+  type ThrowComparison,
+  type ThrowMark,
+  type ThrowMatch,
+  type ThrowScore,
+  compareThrows,
+  defaultMatchWindow,
+  flightBenchmark,
+  rateThrows,
+} from "./evaluation.ts";
 export { type Rgb, createFrame, drawLine, fillDisc, fillRect, strokeRect } from "./frame.ts";
 export { paintOverlay } from "./overlay.ts";
 export type {

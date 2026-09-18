@@ -27,14 +27,14 @@
  * Bildbreite, in der markiert wurde — meist die volle Breite der Aufnahme,
  * während ausgewertet wird, was `--breite` vorgibt.
  */
-import { readFile } from "node:fs/promises";
 import type { CalibrationPoint, TableCalibration } from "../../lib/flight/index.ts";
+import { readJsonFile } from "./json-datei.ts";
 
 /** Liest die Kalibrierung aus einer JSON-Datei und prüft sie. */
 export async function readCalibration(file: string): Promise<TableCalibration> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(file, "utf8"));
+    parsed = await readJsonFile(file);
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`Kalibrierung nicht lesbar (${file}): ${reason}`);
