@@ -10,9 +10,15 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { type FlightSettings, analyzeFlight, defaultFlightSettings, paintOverlay } from "../lib/flight/index.ts";
+import {
+  type FlightSettings,
+  type Throw,
+  analyzeFlight,
+  defaultFlightSettings,
+  paintOverlay,
+} from "../lib/flight/index.ts";
 import { decodeFrames, encodeVideo, probeVideo } from "./lib/ffmpeg.ts";
-import { summarize, toCsv, toJson } from "./lib/report.ts";
+import { candidatesToCsv, summarize, throwsToCsv, toJson } from "./lib/report.ts";
 
 const HELP = `Aufnahme der Seitenkamera auswerten.
 
@@ -86,37 +92,67 @@ async function main(): Promise<void> {
   console.log(`${frames.length} Bilder gelesen.`);
 
   console.log("Werte die Bilder aus …");
-  const results = analyzeFlight(frames, settings);
+  const analysis = analyzeFlight(frames, settings);
 
   await mkdir(outDir, { recursive: true });
-  const csvFile = path.join(outDir, `${name}.csv`);
+  const throwsFile = path.join(outDir, `${name}.csv`);
+  const candidatesFile = path.join(outDir, `${name}-kandidaten.csv`);
   const jsonFile = path.join(outDir, `${name}.json`);
   const videoFile = path.join(outDir, `${name}-overlay.mp4`);
 
-  await writeFile(csvFile, toCsv(results), "utf8");
+  await writeFile(throwsFile, throwsToCsv(analysis.throws), "utf8");
+  await writeFile(candidatesFile, candidatesToCsv(analysis.frames), "utf8");
   await writeFile(
     jsonFile,
-    toJson(results, { source: path.resolve(source), width: targetWidth, height: targetHeight, settings }),
+    toJson(analysis, { source: path.resolve(source), width: targetWidth, height: targetHeight, settings }),
     "utf8",
   );
 
   if (!values["ohne-video"]) {
     console.log("Zeichne die Markierungen ins Bild und schreibe das Overlay-Video …");
-    results.forEach((result, index) => paintOverlay(frames[index], result));
+    analysis.frames.forEach((result, index) => paintOverlay(frames[index], result, analysis.throws));
     await encodeVideo(videoFile, frames, { width: targetWidth, height: targetHeight, fps });
   }
 
-  const summary = summarize(results);
+  const summary = summarize(analysis);
+  console.log("");
+  printThrows(analysis.throws);
   console.log("");
   console.log(`Bilder ausgewertet:      ${summary.frames}`);
   console.log(`Bilder Lernphase:        ${summary.learningFrames}`);
   console.log(`Ball-Kandidaten:         ${summary.candidates} in ${summary.framesWithCandidates} Bildern`);
   console.log(`Szenenwechsel:           ${summary.sceneChanges}`);
+  console.log(
+    `Würfe:                   ${summary.throws} (${summary.throwsLeft} von links, ${summary.throwsRight} von rechts)`,
+  );
   console.log("");
   console.log("Geschrieben:");
   if (!values["ohne-video"]) console.log(`  ${path.resolve(videoFile)}`);
-  console.log(`  ${path.resolve(csvFile)}`);
+  console.log(`  ${path.resolve(throwsFile)}`);
+  console.log(`  ${path.resolve(candidatesFile)}`);
   console.log(`  ${path.resolve(jsonFile)}`);
+}
+
+/** Die Wurftabelle direkt im Terminal — dieselben Zahlen wie in der CSV-Datei. */
+function printThrows(throws: readonly Throw[]): void {
+  if (throws.length === 0) {
+    console.log("Kein Wurf erkannt.");
+    return;
+  }
+  console.log("Nr  Abwurf    Dauer   Seite    Scheitel     Weite       Tempo");
+  for (const found of throws) {
+    console.log(
+      [
+        String(found.nr).padStart(2),
+        `${found.startedAt.toFixed(2)} s`.padStart(8),
+        `${found.metrics.duration.toFixed(2)} s`.padStart(7),
+        found.side.padEnd(8),
+        `${found.metrics.peakHeight.toFixed(0)} px`.padStart(8),
+        `${found.metrics.span.toFixed(0)} px`.padStart(8),
+        `${found.metrics.speed.toFixed(0)} px/s`.padStart(10),
+      ].join("  "),
+    );
+  }
 }
 
 function number(value: string | undefined, fallback: number): number {

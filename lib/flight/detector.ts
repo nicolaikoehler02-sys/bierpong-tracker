@@ -1,11 +1,14 @@
 import { Background } from "./background.ts";
 import { findCandidates } from "./candidates.ts";
 import { type FlightSettings, defaultFlightSettings } from "./settings.ts";
-import type { FlightFrame, FrameResult } from "./types.ts";
+import { buildTracks } from "./tracks.ts";
+import { toThrows } from "./throws.ts";
+import type { FlightAnalysis, FlightFrame, FrameResult } from "./types.ts";
 
 /**
  * Der Erkennungskern der Seitenkamera: Bilderfolge plus Einstellungen hinein,
- * ein Ergebnis je Bild heraus.
+ * die Würfe der Aufnahme heraus — dazu das Ergebnis je Bild, an dem sich
+ * nachsehen lässt, wie sie zustande gekommen sind.
  *
  * Der Ablauf je Bild:
  *
@@ -18,14 +21,15 @@ import type { FlightFrame, FrameResult } from "./types.ts";
  *    (siehe `findCandidates`).
  *
  * Mehrere Kandidaten je Bild sind ausdrücklich erlaubt. Welcher davon zu
- * welchem Wurf gehört, entscheidet erst das Verketten zu Flugbahnen im
- * nächsten Schritt.
+ * welchem Wurf gehört, entscheidet erst der zweite Teil über die ganze
+ * Aufnahme: Die Kandidaten werden zu Flugbahnen verkettet (siehe `buildTracks`),
+ * und aus den tauglichen Bahnen werden Würfe (siehe `toThrows`).
  */
 export function analyzeFlight(
   frames: readonly FlightFrame[],
   settings: FlightSettings = defaultFlightSettings,
-): FrameResult[] {
-  if (frames.length === 0) return [];
+): FlightAnalysis {
+  if (frames.length === 0) return { frames: [], throws: [] };
 
   const { width, height } = frames[0];
   const background = new Background(width, height, settings);
@@ -92,5 +96,5 @@ export function analyzeFlight(
     });
   }
 
-  return results;
+  return { frames: results, throws: toThrows(buildTracks(results, settings), settings) };
 }

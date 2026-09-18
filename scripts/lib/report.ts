@@ -1,15 +1,81 @@
-import type { FlightSettings, FrameResult } from "../../lib/flight/index.ts";
+import type { FlightAnalysis, FlightSettings, FrameResult, Throw } from "../../lib/flight/index.ts";
 
 /**
- * Die Tabelle für den Menschen: Semikolon als Trennzeichen, damit Excel sie
+ * Die Tabellen für den Menschen: Semikolon als Trennzeichen, damit Excel sie
  * ohne Import-Dialog öffnet; Zahlen mit Punkt, damit Auswertungen sie direkt
  * weiterverarbeiten können.
- *
- * Je Kandidat eine Zeile. Bilder ohne Kandidaten bekommen trotzdem eine Zeile,
- * damit die Aufnahme in der Tabelle lückenlos ist.
  */
 const SEPARATOR = ";";
-const COLUMNS = [
+
+/**
+ * Die Wurftabelle — eine Zeile je erkanntem Wurf. Das ist die Tabelle, um die
+ * es geht: Zeitpunkt, Seite und die Kennzahlen der Flugbahn.
+ *
+ * Alle Längen und Geschwindigkeiten stehen in Bildpunkten beziehungsweise
+ * Bildpunkten je Sekunde — Zentimeter verlangen die Kalibrierung der
+ * Tischkante und kommen später dazu.
+ */
+const THROW_COLUMNS = [
+  "nr",
+  "abwurf_s",
+  "ende_s",
+  "dauer_s",
+  "seite",
+  "bild_von",
+  "bild_bis",
+  "punkte",
+  "abwurf_x",
+  "abwurf_y",
+  "ende_x",
+  "ende_y",
+  "scheitel_s",
+  "scheitelhoehe_px",
+  "strecke_px",
+  "weite_px",
+  "tempo_px_s",
+  "tempo_waagerecht_px_s",
+] as const;
+
+export function throwsToCsv(throws: readonly Throw[]): string {
+  const lines = [THROW_COLUMNS.join(SEPARATOR)];
+  for (const found of throws) {
+    const first = found.points[0];
+    const last = found.points[found.points.length - 1];
+    lines.push(
+      [
+        found.nr,
+        found.startedAt.toFixed(3),
+        found.endedAt.toFixed(3),
+        found.metrics.duration.toFixed(3),
+        found.side,
+        found.startFrame,
+        found.endFrame,
+        found.points.length,
+        first.x.toFixed(1),
+        first.y.toFixed(1),
+        last.x.toFixed(1),
+        last.y.toFixed(1),
+        found.metrics.peakAt.toFixed(3),
+        found.metrics.peakHeight.toFixed(1),
+        found.metrics.distance.toFixed(1),
+        found.metrics.span.toFixed(1),
+        found.metrics.speed.toFixed(1),
+        found.metrics.speedX.toFixed(1),
+      ].join(SEPARATOR),
+    );
+  }
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+/**
+ * Die Kandidatentabelle zum Nachsehen: je Kandidat eine Zeile. Bilder ohne
+ * Kandidaten bekommen trotzdem eine Zeile, damit die Aufnahme in der Tabelle
+ * lückenlos ist.
+ *
+ * Sie beantwortet die Frage, warum ein Wurf fehlt oder einer zu viel dasteht —
+ * gezählt wird trotzdem in der Wurftabelle.
+ */
+const CANDIDATE_COLUMNS = [
   "bild",
   "zeit_s",
   "kandidaten",
@@ -28,8 +94,8 @@ const COLUMNS = [
   "lernphase",
 ] as const;
 
-export function toCsv(results: readonly FrameResult[]): string {
-  const lines = [COLUMNS.join(SEPARATOR)];
+export function candidatesToCsv(results: readonly FrameResult[]): string {
+  const lines = [CANDIDATE_COLUMNS.join(SEPARATOR)];
   for (const result of results) {
     const head = [result.index, result.at.toFixed(3), result.candidates.length];
     const tail = [
@@ -74,16 +140,18 @@ export interface ReportMeta {
 /**
  * Die Datei für die Weiterverarbeitung. Die Schlüssel entsprechen bewusst
  * eins zu eins den Typen des Erkennungskerns, damit die Folgeschritte sie
- * ohne Umrechnung einlesen können.
+ * ohne Umrechnung einlesen können — einschließlich der vollständigen
+ * Punktfolge jeder Flugbahn.
  */
-export function toJson(results: readonly FrameResult[], meta: ReportMeta): string {
+export function toJson(analysis: FlightAnalysis, meta: ReportMeta): string {
   return `${JSON.stringify(
     {
       source: meta.source,
       createdAt: new Date().toISOString(),
-      frame: { width: meta.width, height: meta.height, count: results.length },
+      frame: { width: meta.width, height: meta.height, count: analysis.frames.length },
       settings: meta.settings,
-      results,
+      throws: analysis.throws,
+      results: analysis.frames,
     },
     null,
     2,
@@ -99,14 +167,24 @@ export interface Summary {
   sceneChanges: number;
   /** Bilder, in denen der Hintergrund gelernt wurde */
   learningFrames: number;
+  /** Erkannte Würfe */
+  throws: number;
+  /** Erkannte Würfe des linken Werfers */
+  throwsLeft: number;
+  /** Erkannte Würfe des rechten Werfers */
+  throwsRight: number;
 }
 
-export function summarize(results: readonly FrameResult[]): Summary {
+export function summarize(analysis: FlightAnalysis): Summary {
+  const results = analysis.frames;
   return {
     frames: results.length,
     framesWithCandidates: results.filter((result) => result.candidates.length > 0).length,
     candidates: results.reduce((sum, result) => sum + result.candidates.length, 0),
     sceneChanges: results.filter((result) => result.sceneChanged).length,
     learningFrames: results.filter((result) => result.learning).length,
+    throws: analysis.throws.length,
+    throwsLeft: analysis.throws.filter((found) => found.side === "links").length,
+    throwsRight: analysis.throws.filter((found) => found.side === "rechts").length,
   };
 }

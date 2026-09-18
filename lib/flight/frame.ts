@@ -52,6 +52,31 @@ export function strokeRect(
   fillRect(frame, x + width - thickness, y, thickness, height, color);
 }
 
+/**
+ * Zeichnet eine durchgezogene Strecke — im Overlay ein Stück der Flugbahn.
+ *
+ * Gesetzt wird ein kleines Quadrat je Bildpunkt Weglänge; das ergibt eine
+ * lückenlose Linie in jeder Schräglage, ohne Kantenglättung.
+ */
+export function drawLine(
+  frame: FlightFrame,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  color: Rgb,
+  thickness = 2,
+): void {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
+  const half = thickness / 2;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    fillRect(frame, x0 + dx * t - half, y0 + dy * t - half, thickness, thickness, color);
+  }
+}
+
 /** Zeichnet eine gefüllte Scheibe — im Test der helle Punkt, im Overlay die Markierung. */
 export function fillDisc(frame: FlightFrame, cx: number, cy: number, radius: number, color: Rgb): void {
   const r2 = radius * radius;

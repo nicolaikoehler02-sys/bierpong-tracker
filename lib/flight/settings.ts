@@ -45,6 +45,40 @@ export interface FlightSettings {
   minFill: number;
   /** Höchstzahl gemeldeter Kandidaten je Bild; gibt es mehr, zählen die größten */
   maxCandidates: number;
+
+  // --- Kandidaten zu Flugbahnen verketten ---
+  /**
+   * Größter erlaubter Abstand zur Bewegungsvorhersage in Bildpunkten, je
+   * überbrücktem Bild. Passt kein Kandidat in diesen Umkreis, wird er nicht an
+   * die Bahn gehängt.
+   */
+  maxPredictionDistance: number;
+  /**
+   * Größter erlaubter Sprung in Bildpunkten für den zweiten Punkt einer Bahn.
+   * Beim ersten Punkt gibt es noch keine Geschwindigkeit und damit keine
+   * Vorhersage — nur hier ist der Umkreis so groß wie ein ganzer Flugschritt.
+   */
+  maxStartJump: number;
+  /**
+   * So viele Bilder ohne passenden Kandidaten darf eine Bahn überbrücken,
+   * bevor sie endet.
+   */
+  maxMissingFrames: number;
+
+  // --- Aus einer Flugbahn wird ein Wurf ---
+  /** Mindestzahl gesehener Punkte einer Bahn */
+  minThrowPoints: number;
+  /** Waagerechte Mindeststrecke zwischen Abwurf und letztem Punkt in Bildpunkten */
+  minThrowSpan: number;
+  /**
+   * So weit darf ein einzelner Schritt der Gesamtrichtung entgegenlaufen, in
+   * Bildpunkten. Darüber gilt die Bahn als umgekehrt und ist kein Wurf.
+   */
+  maxReverseStep: number;
+  /** Kleinste waagerechte Geschwindigkeit eines Wurfs in Bildpunkten je Sekunde */
+  minThrowSpeed: number;
+  /** Größte waagerechte Geschwindigkeit eines Wurfs in Bildpunkten je Sekunde */
+  maxThrowSpeed: number;
 }
 
 export const defaultFlightSettings: FlightSettings = {
@@ -88,4 +122,34 @@ export const defaultFlightSettings: FlightSettings = {
   minFill: 0.3,
   // Mehr als eine Handvoll Bälle gleichzeitig gibt es nicht.
   maxCandidates: 6,
+
+  // Gegenüber der geraden Vorhersage verschiebt die Schwerkraft den Ball je
+  // Bild nur um wenige Bildpunkte. Der Rest ist Spielraum für den wandernden
+  // Schwerpunkt eines bewegungsunscharfen Streifens.
+  maxPredictionDistance: 28,
+  // Ein Wurf überquert den Tisch — rund 500 Bildpunkte — in gut einer halben
+  // Sekunde. Das sind etwa 35 Bildpunkte je Bild; 70 lässt auch den schnellsten
+  // Wurf noch anknüpfen, ohne zwei Bälle auf dem Tisch zu verwechseln.
+  maxStartJump: 70,
+  // Ein Ball verschwindet kurz vor dunklem Hintergrund oder hinter einem
+  // Becher. Zwei Bilder sind knapp eine Fünfzehntelsekunde — lang genug dafür,
+  // kurz genug, dass keine zwei Würfe zusammenwachsen.
+  maxMissingFrames: 2,
+
+  // Ein Wurf ist bei 30 Bildern pro Sekunde rund 20 Bilder lang. Fünf Punkte
+  // sind das Wenigste, woran sich eine Richtung überhaupt ablesen lässt.
+  minThrowPoints: 5,
+  // Rund ein Viertel der Tischlänge. Kürzeres ist eine zuckende Hand am Rand,
+  // kein Flug über den Tisch.
+  minThrowSpan: 120,
+  // Der Schwerpunkt eines Streifens wandert um ein paar Bildpunkte; ein echter
+  // Richtungswechsel sieht anders aus.
+  maxReverseStep: 4,
+  // Ein Wurf überquert den Tisch mit gut 2 Metern je Sekunde, ein
+  // zurückrollender Ball mit unter einem. Bei rund 200 Bildpunkten je Meter
+  // liegt die Grenze dazwischen.
+  minThrowSpeed: 300,
+  // Schneller als 10 Meter je Sekunde wirft niemand einen Tischtennisball über
+  // einen Biertisch; darüber sind zwei fremde Flecken zu einer Bahn verknüpft.
+  maxThrowSpeed: 2200,
 };

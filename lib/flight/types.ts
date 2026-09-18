@@ -63,3 +63,85 @@ export interface FrameResult {
    */
   learning: boolean;
 }
+
+/** Ein einzelner gesehener Punkt einer Flugbahn. */
+export interface FlightPoint {
+  /** Laufende Nummer des Bildes in der Aufnahme */
+  index: number;
+  /** Zeitpunkt in der Aufnahme in Sekunden */
+  at: number;
+  /** Stelle im Bild in Bildpunkten */
+  x: number;
+  y: number;
+}
+
+/**
+ * Die Seite, von der geworfen wurde — aus der Flugrichtung.
+ *
+ * Der Kern kennt bewusst keine Namen: Wer links steht, wird außerhalb des Kerns
+ * entschieden und ändert sich von Aufnahme zu Aufnahme.
+ */
+export type ThrowerSide = "links" | "rechts";
+
+/**
+ * Einfache Kennzahlen einer Flugbahn, alle in **Bildpunkten**.
+ *
+ * Bildpunkte und nicht Zentimeter: Dafür bräuchte es die Kalibrierung der
+ * Tischkante, und die ist ein eigener Schritt. Die Zahlen sind trotzdem schon
+ * untereinander vergleichbar, solange dieselbe Aufnahmegröße ausgewertet wird.
+ */
+export interface ThrowMetrics {
+  /** Dauer vom Abwurf bis zum letzten gesehenen Punkt in Sekunden */
+  duration: number;
+  /** Höhe des Scheitels über dem Abwurfpunkt in Bildpunkten (nach oben positiv) */
+  peakHeight: number;
+  /** Zeitpunkt des Scheitels in Sekunden */
+  peakAt: number;
+  /** Länge der Bahn in Bildpunkten: Summe der Abstände zwischen den Punkten */
+  distance: number;
+  /** Waagerechte Strecke zwischen Abwurf und letztem Punkt in Bildpunkten */
+  span: number;
+  /** Geschwindigkeit entlang der Bahn in Bildpunkten je Sekunde */
+  speed: number;
+  /** Waagerechte Geschwindigkeit in Bildpunkten je Sekunde */
+  speedX: number;
+}
+
+/**
+ * Ein erkannter Wurf: eine Flugbahn, die alle Prüfungen bestanden hat.
+ *
+ * Alles, was die Prüfungen nicht besteht — ein zurückrollender Ball, eine Hand,
+ * ein Schatten —, ist kein Wurf und taucht hier nicht auf.
+ */
+export interface Throw {
+  /** Laufende Nummer in der Aufnahme, beginnend bei 1 */
+  nr: number;
+  /** Zeitpunkt des Abwurfs in Sekunden — der erste gesehene Punkt der Bahn */
+  startedAt: number;
+  /** Zeitpunkt des letzten gesehenen Punktes in Sekunden */
+  endedAt: number;
+  /** Bildnummer des Abwurfs */
+  startFrame: number;
+  /** Bildnummer des letzten gesehenen Punktes */
+  endFrame: number;
+  /** Seite des Werfers, aus der Flugrichtung */
+  side: ThrowerSide;
+  /** Die vollständige Punktfolge der Flugbahn, nach Bildnummer aufsteigend */
+  points: FlightPoint[];
+  metrics: ThrowMetrics;
+}
+
+/**
+ * Das Ergebnis einer ganzen Aufnahme: das Bild-für-Bild-Ergebnis und die daraus
+ * erkannten Würfe.
+ *
+ * Beides kommt aus derselben Naht. Die Würfe sind das Ziel; die Bildergebnisse
+ * bleiben daneben stehen, weil sich nur an ihnen nachsehen lässt, warum der
+ * Kern eine Bahn übersehen oder erfunden hat.
+ */
+export interface FlightAnalysis {
+  /** Ein Ergebnis je Bild der Aufnahme, in der Reihenfolge der Bilder */
+  frames: FrameResult[];
+  /** Alle erkannten Würfe der Aufnahme, nach Abwurfzeitpunkt sortiert */
+  throws: Throw[];
+}

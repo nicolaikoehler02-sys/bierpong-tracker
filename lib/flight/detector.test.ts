@@ -43,9 +43,14 @@ function candidateCount(results: readonly FrameResult[]): number {
   return results.reduce((sum, result) => sum + result.candidates.length, 0);
 }
 
-describe("analyzeFlight", () => {
+/** Nur die Ergebnisse je Bild — für alles, was den Kandidatenschritt prüft. */
+function framesOf(frames: readonly FlightFrame[]): FrameResult[] {
+  return analyzeFlight(frames, settings).frames;
+}
+
+describe("analyzeFlight: Kandidaten je Bild", () => {
   it("meldet je Bild ein Ergebnis mit Zeitpunkt aus den Bildern pro Sekunde", () => {
-    const results = analyzeFlight(lead(6), settings);
+    const results = framesOf(lead(6));
 
     expect(results).toHaveLength(6);
     expect(results.map((result) => result.index)).toEqual([0, 1, 2, 3, 4, 5]);
@@ -53,7 +58,7 @@ describe("analyzeFlight", () => {
   });
 
   it("lernt den Hintergrund aus dem leeren Vorlauf und meldet solange nichts", () => {
-    const results = analyzeFlight(lead(10), settings);
+    const results = framesOf(lead(10));
 
     expect(results.slice(0, LEARN_FRAMES).every((result) => result.learning)).toBe(true);
     expect(results.slice(LEARN_FRAMES).every((result) => result.learning)).toBe(false);
@@ -64,7 +69,7 @@ describe("analyzeFlight", () => {
   it("findet den gezeichneten Ball als Kandidaten an seiner tatsächlichen Stelle", () => {
     const path = Array.from({ length: 8 }, (_, i) => ({ x: 30 + i * 22, y: 40 + i * 12 }));
     const frames = [...lead(), ...path.map((point) => withBall(point.x, point.y))];
-    const results = analyzeFlight(frames, settings);
+    const results = framesOf(frames);
 
     path.forEach((point, i) => {
       const result = results[lead().length + i];
@@ -81,7 +86,7 @@ describe("analyzeFlight", () => {
     const streak = empty();
     // Ein Ball ist bei 30 Bildern pro Sekunde in die Länge gezogen.
     fillRect(streak, 80, 60, 30, 10, BALL);
-    const results = analyzeFlight([...lead(), streak], settings);
+    const results = framesOf([...lead(), streak]);
 
     const candidates = results[results.length - 1].candidates;
     expect(candidates).toHaveLength(1);
@@ -91,7 +96,7 @@ describe("analyzeFlight", () => {
   it("verwirft ein langgestrecktes Gebilde wie einen Arm", () => {
     const arm = empty();
     fillRect(arm, 80, 60, 70, 6, PERSON);
-    const results = analyzeFlight([...lead(), arm], settings);
+    const results = framesOf([...lead(), arm]);
 
     expect(results[results.length - 1].candidates).toHaveLength(0);
   });
@@ -102,7 +107,7 @@ describe("analyzeFlight", () => {
       fillRect(frame, -10 + i * 13, 55, 30, 110, PERSON);
       return frame;
     });
-    const results = analyzeFlight([...lead(), ...walk], settings);
+    const results = framesOf([...lead(), ...walk]);
 
     expect(candidateCount(results)).toBe(0);
     // Eine Person ist auffällig, aber nicht das ganze Bild.
@@ -116,7 +121,7 @@ describe("analyzeFlight", () => {
       ...lead(20, BRIGHT),
       ...Array.from({ length: 5 }, (_, i) => withBall(60 + i * 30, 90, BRIGHT)),
     ];
-    const results = analyzeFlight(frames, settings);
+    const results = framesOf(frames);
 
     // Der Sprung selbst: ganzes Bild verändert, kein einziger Kandidat.
     expect(results[10].sceneChanged).toBe(true);
@@ -135,7 +140,7 @@ describe("analyzeFlight", () => {
     const frames = Array.from({ length: 120 }, (_, i) =>
       empty([BACKGROUND[0] + i * 0.3, BACKGROUND[1] + i * 0.3, BACKGROUND[2] + i * 0.3]),
     );
-    const results = analyzeFlight(frames, settings);
+    const results = framesOf(frames);
 
     expect(candidateCount(results)).toBe(0);
     expect(results.every((result) => result.sceneChanged === false)).toBe(true);
@@ -143,7 +148,7 @@ describe("analyzeFlight", () => {
 
   it("lässt einen liegenden Ball nicht in den Hintergrund einsickern", () => {
     const resting = Array.from({ length: 60 }, () => withBall(120, 90));
-    const results = analyzeFlight([...lead(), ...resting], settings);
+    const results = framesOf([...lead(), ...resting]);
 
     expect(results[results.length - 1].candidates).toHaveLength(1);
   });
@@ -152,7 +157,7 @@ describe("analyzeFlight", () => {
     const frame = empty();
     fillDisc(frame, 60, 60, BALL_RADIUS, BALL);
     fillDisc(frame, 180, 120, BALL_RADIUS, BALL);
-    const results = analyzeFlight([...lead(), frame], settings);
+    const results = framesOf([...lead(), frame]);
 
     expect(results[results.length - 1].candidates).toHaveLength(2);
   });
@@ -160,12 +165,183 @@ describe("analyzeFlight", () => {
   it("hält einen zu kleinen Fleck für Rauschen", () => {
     const speck = empty();
     fillDisc(speck, 120, 90, 2, BALL);
-    const results = analyzeFlight([...lead(), speck], settings);
+    const results = framesOf([...lead(), speck]);
 
     expect(results[results.length - 1].candidates).toHaveLength(0);
   });
 
-  it("gibt für eine leere Bilderfolge eine leere Liste zurück", () => {
-    expect(analyzeFlight([], settings)).toEqual([]);
+  it("gibt für eine leere Bilderfolge ein leeres Ergebnis zurück", () => {
+    expect(analyzeFlight([], settings)).toEqual({ frames: [], throws: [] });
+  });
+});
+
+/** Eine Stelle im Bild. */
+interface Spot {
+  x: number;
+  y: number;
+}
+
+/** Nur die erkannten Würfe — darum geht es in diesem Teil. */
+function throwsOf(frames: readonly FlightFrame[]) {
+  return analyzeFlight(frames, settings).throws;
+}
+
+/**
+ * Eine Flugbahn als Punktfolge: gleichmäßig zur Seite, Parabel nach oben.
+ * `base` ist die Höhe von Abwurf und Aufkommen, `peak` der Scheitel darüber.
+ */
+function arc(from: number, to: number, count: number, base = 140, peak = 70): Spot[] {
+  return Array.from({ length: count }, (_, i) => {
+    const u = i / (count - 1);
+    return { x: from + (to - from) * u, y: base - 4 * peak * u * (1 - u) };
+  });
+}
+
+/** Dieselbe Bahn, aber in den genannten Bildern ist der Ball nicht zu sehen. */
+function hide(points: readonly Spot[], ...frames: number[]): (Spot | null)[] {
+  return points.map((point, i) => (frames.includes(i) ? null : point));
+}
+
+/** Zeichnet einen oder mehrere Bälle in eine Folge sonst leerer Bilder. */
+function sequence(
+  length: number,
+  balls: readonly { at: number; points: readonly (Spot | null)[] }[],
+): FlightFrame[] {
+  const frames = Array.from({ length }, () => empty());
+  for (const ball of balls) {
+    ball.points.forEach((point, i) => {
+      if (point) fillDisc(frames[ball.at + i], point.x, point.y, BALL_RADIUS, BALL);
+    });
+  }
+  return frames;
+}
+
+/** Eine einzelne Flugbahn nach dem leeren Vorlauf. */
+function single(points: readonly (Spot | null)[]): FlightFrame[] {
+  return [...lead(), ...sequence(points.length, [{ at: 0, points }])];
+}
+
+describe("analyzeFlight: Würfe aus Flugbahnen", () => {
+  it("macht aus einem Flugbogen genau einen Wurf mit Zeitpunkt, Seite und Kennzahlen", () => {
+    const throws = throwsOf(single(arc(20, 220, 12)));
+
+    expect(throws).toHaveLength(1);
+    const [first] = throws;
+    expect(first.nr).toBe(1);
+    expect(first.side).toBe("links");
+    // Der Bogen beginnt im ersten Bild nach dem Vorlauf und dauert elf Bilder.
+    expect(first.startFrame).toBe(LEARN_FRAMES + 2);
+    expect(first.startedAt).toBeCloseTo((LEARN_FRAMES + 2) / 30, 6);
+    expect(first.endedAt - first.startedAt).toBeCloseTo(11 / 30, 6);
+    expect(first.points).toHaveLength(12);
+    expect(first.points.map((point) => point.index)).toEqual(
+      Array.from({ length: 12 }, (_, i) => LEARN_FRAMES + 2 + i),
+    );
+
+    // Kennzahlen in Bildpunkten: Scheitel rund 70 über dem Abwurf, gut 200
+    // Bildpunkte in reichlich einer Drittelsekunde.
+    expect(first.metrics.peakHeight).toBeGreaterThan(60);
+    expect(first.metrics.peakHeight).toBeLessThan(80);
+    expect(first.metrics.span).toBeGreaterThan(190);
+    expect(first.metrics.span).toBeLessThan(210);
+    expect(first.metrics.distance).toBeGreaterThan(first.metrics.span);
+    expect(first.metrics.speedX).toBeCloseTo(first.metrics.span / first.metrics.duration, 3);
+    expect(first.metrics.speed).toBeGreaterThan(first.metrics.speedX);
+  });
+
+  it("liest die Seite des Werfers aus der Flugrichtung — in beide Richtungen", () => {
+    expect(throwsOf(single(arc(20, 220, 12))).map((found) => found.side)).toEqual(["links"]);
+    expect(throwsOf(single(arc(220, 20, 12))).map((found) => found.side)).toEqual(["rechts"]);
+  });
+
+  it("zählt zwei Würfe kurz nacheinander einzeln", () => {
+    // Vier Bilder Pause dazwischen: mehr, als eine Bahn überbrücken darf.
+    const frames = [
+      ...lead(),
+      ...sequence(28, [
+        { at: 0, points: arc(20, 220, 12) },
+        { at: 16, points: arc(220, 20, 12) },
+      ]),
+    ];
+    const throws = throwsOf(frames);
+
+    expect(throws).toHaveLength(2);
+    expect(throws.map((found) => found.nr)).toEqual([1, 2]);
+    expect(throws.map((found) => found.side)).toEqual(["links", "rechts"]);
+    expect(throws[1].startedAt).toBeGreaterThan(throws[0].endedAt);
+  });
+
+  it("hält zwei gleichzeitig fliegende Bälle auseinander", () => {
+    // Beide sind in der Luft, aber in verschiedenen Höhen: Nur einer von beiden
+    // setzt die bisherige Bewegung fort.
+    const frames = [
+      ...lead(),
+      ...sequence(15, [
+        { at: 0, points: arc(20, 220, 12, 160, 50) },
+        { at: 3, points: arc(220, 20, 12, 60, 30) },
+      ]),
+    ];
+    const throws = throwsOf(frames);
+
+    expect(throws).toHaveLength(2);
+    expect(throws.map((found) => found.side)).toEqual(["links", "rechts"]);
+    expect(throws.every((found) => found.points.length === 12)).toBe(true);
+  });
+
+  it("überbrückt zwei Bilder, in denen der Ball nicht zu sehen ist", () => {
+    // Der Ball ist kurz aus dem Bild geflogen oder hinter einem Becher
+    // verschwunden. Danach geht die Bahn dort weiter, wo die Vorhersage sie
+    // erwartet — es bleibt ein einziger Wurf.
+    const throws = throwsOf(single(hide(arc(20, 220, 12), 5, 6)));
+
+    expect(throws).toHaveLength(1);
+    expect(throws[0].points).toHaveLength(10);
+    expect(throws[0].endFrame - throws[0].startFrame).toBe(11);
+    expect(throws[0].side).toBe("links");
+  });
+
+  it("reißt die Lücke weiter auf, bleibt kein Wurf übrig", () => {
+    // Drei Bilder ohne Ball: Die Bahn endet, und keine der beiden Hälften ist
+    // für sich genommen ein Wurf.
+    expect(throwsOf(single(hide(arc(20, 220, 12), 5, 6, 7)))).toEqual([]);
+  });
+
+  it("zählt einen zurückrollenden Ball nicht als Wurf", () => {
+    // Langsam über den Tisch zurück: 200 Bildpunkte in reichlich einer
+    // Sekunde. Gefunden wird er sehr wohl — er besteht nur die Prüfung nicht.
+    const points = Array.from({ length: 40 }, (_, i) => ({ x: 220 - (i * 200) / 39, y: 150 }));
+    const frames = single(points);
+
+    expect(candidateCount(analyzeFlight(frames, settings).frames)).toBeGreaterThan(30);
+    expect(throwsOf(frames)).toEqual([]);
+  });
+
+  it("zählt einen Ball, der abprallt und zurückläuft, nicht als Wurf", () => {
+    const back = [20, 52, 82, 110, 136, 160, 180, 194, 200, 188, 172, 152].map((x) => ({
+      x,
+      y: 150,
+    }));
+
+    expect(throwsOf(single(back))).toEqual([]);
+  });
+
+  it("meldet keinen Wurf, wenn gar nichts im Bild passiert", () => {
+    expect(throwsOf(lead(40))).toEqual([]);
+  });
+
+  it("meldet keinen Wurf, wenn nur eine Person durch das Bild läuft", () => {
+    const walk = Array.from({ length: 20 }, (_, i) => {
+      const frame = empty();
+      fillRect(frame, -10 + i * 13, 55, 30, 110, PERSON);
+      return frame;
+    });
+
+    expect(throwsOf([...lead(), ...walk])).toEqual([]);
+  });
+
+  it("zählt einen liegen bleibenden Ball nicht als Wurf", () => {
+    const resting = Array.from({ length: 40 }, () => ({ x: 120, y: 150 }));
+
+    expect(throwsOf(single(resting))).toEqual([]);
   });
 });
