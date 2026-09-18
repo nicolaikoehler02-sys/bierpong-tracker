@@ -1,17 +1,13 @@
-import { Background } from "./background.ts";
-import { toScale, toTableLine } from "./calibration.ts";
-import { findCandidates } from "./candidates.ts";
+import { FlightRun } from "./run.ts";
 import { type FlightSettings, defaultFlightSettings } from "./settings.ts";
-import { buildTracks } from "./tracks.ts";
-import { toThrows } from "./throws.ts";
-import type { FlightAnalysis, FlightFrame, FrameResult } from "./types.ts";
+import type { FlightAnalysis, FlightFrame } from "./types.ts";
 
 /**
  * Der Erkennungskern der Seitenkamera: Bilderfolge plus Einstellungen hinein,
  * die Würfe der Aufnahme heraus — dazu das Ergebnis je Bild, an dem sich
  * nachsehen lässt, wie sie zustande gekommen sind.
  *
- * Der Ablauf je Bild:
+ * Der Ablauf je Bild (siehe `FlightRun`):
  *
  * 1. Das Bild mit dem gelernten Hintergrund vergleichen (siehe `Background`).
  *    Solange der Hintergrund noch gelernt wird, wird nichts gemeldet.
@@ -36,86 +32,19 @@ import type { FlightAnalysis, FlightFrame, FrameResult } from "./types.ts";
  * Kalibrierung anders ausfallen als ohne, weil die Tischebene dann als
  * zusätzliche Prüfung mitspricht (siehe `findBounce` in `bounce.ts`). Die Liste
  * der Würfe selbst bleibt dieselbe.
+ *
+ * **Alle Bilder auf einmal — wer sie nicht auf einmal hat, nimmt `FlightRun`.**
+ * Diese Form passt zum Auswertungsskript, dem ffmpeg die ganze Aufnahme in den
+ * Speicher legt. Im Browser kommt ein Bild nach dem anderen aus dem Video;
+ * dort wird derselbe Ablauf Bild für Bild gefüttert. Es ist buchstäblich
+ * derselbe Code: Diese Funktion ist nichts anderes als ein `FlightRun` in einer
+ * Schleife.
  */
 export function analyzeFlight(
   frames: readonly FlightFrame[],
   settings: FlightSettings = defaultFlightSettings,
 ): FlightAnalysis {
-  if (frames.length === 0) return { frames: [], throws: [], scale: null };
-
-  const { width, height } = frames[0];
-  const scale = toScale(settings.calibration, width, settings);
-  // Dieselbe Kalibrierung, andere Frage: nicht „wie groß", sondern „wo liegt
-  // der Tisch". Ohne Kalibrierung bleibt sie unbeantwortet, und die
-  // Aufsetzer-Erkennung arbeitet allein über die Form der Bahn.
-  const tableLine = toTableLine(settings.calibration, width, settings);
-  const background = new Background(width, height, settings);
-  const grid = {
-    gridWidth: background.gridWidth,
-    gridHeight: background.gridHeight,
-    step: background.step,
-    imageWidth: width,
-    imageHeight: height,
-  };
-  const stack = new Int32Array(background.cells);
-
-  const results: FrameResult[] = [];
-  let sceneFrames = 0;
-
-  for (let index = 0; index < frames.length; index++) {
-    const frame = frames[index];
-    const at = settings.fps > 0 ? index / settings.fps : index;
-    const reading = background.read(frame);
-
-    if (!reading.learning && reading.changedShare > settings.maxChangedShare) {
-      sceneFrames++;
-      // Hält die Störung an, ist der gelernte Hintergrund überholt. Statt den
-      // Rest der Aufnahme aufzugeben, wird er neu gelernt.
-      if (sceneFrames >= settings.relearnFrames) {
-        background.reset();
-        sceneFrames = 0;
-      }
-      results.push({
-        index,
-        at,
-        candidates: [],
-        changedShare: reading.changedShare,
-        sceneChanged: true,
-        learning: false,
-      });
-      continue;
-    }
-    sceneFrames = 0;
-
-    if (reading.learning) {
-      background.absorb();
-      results.push({
-        index,
-        at,
-        candidates: [],
-        changedShare: reading.changedShare,
-        sceneChanged: false,
-        learning: true,
-      });
-      continue;
-    }
-
-    // Erst nachführen, dann suchen: Die Suche verbraucht die Maske.
-    background.follow();
-    const candidates = findCandidates(background.mask, stack, grid, settings);
-    results.push({
-      index,
-      at,
-      candidates,
-      changedShare: reading.changedShare,
-      sceneChanged: false,
-      learning: false,
-    });
-  }
-
-  return {
-    frames: results,
-    throws: toThrows(buildTracks(results, settings), settings, scale, tableLine),
-    scale,
-  };
+  const run = new FlightRun(settings);
+  for (const frame of frames) run.push(frame);
+  return run.finish();
 }

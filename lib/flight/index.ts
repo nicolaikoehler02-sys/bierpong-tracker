@@ -31,6 +31,8 @@ export {
 } from "./evaluation.ts";
 export { type Rgb, createFrame, drawLine, fillDisc, fillRect, strokeRect } from "./frame.ts";
 export { paintOverlay } from "./overlay.ts";
+export { FlightRun } from "./run.ts";
+export { type Summary, summarize } from "./summary.ts";
 export type {
   BallCandidate,
   BouncePoint,

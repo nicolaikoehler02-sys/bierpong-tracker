@@ -4,6 +4,7 @@ const navLinks = [
   { href: "/", label: "Start" },
   { href: "/training", label: "Training" },
   { href: "/kamera", label: "Kamera" },
+  { href: "/auswertung", label: "Auswertung" },
   { href: "/statistik", label: "Statistik" },
   { href: "/plan", label: "Plan" },
   { href: "/drills", label: "Drills" },
