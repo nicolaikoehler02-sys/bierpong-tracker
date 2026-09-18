@@ -39,22 +39,39 @@ Neue Richtung: **Analyse einzelner Würfe aus Kameraaufnahmen** — Flugbahn, Bo
 
 ---
 
-## Tickets (GitHub)
+## Tickets (GitHub) — Meilenstein 1 fertig
 
-| Issue | Ticket | Blockiert von | Stand |
-|---|---|---|---|
-| #2 | Gerüst: Video hinein, Overlay und Tabelle heraus | — | in Arbeit |
-| #3 | Hintergrund lernen und Ball-Kandidaten finden | #2 | offen |
-| #4 | Kandidaten zu Flugbahnen verketten, Würfe erkennen | #3 | offen |
-| #5 | Bewertungsskript gegen Handmarkierungen | #4 | offen |
-| #6 | Kalibrierung, Bogenhöhe und Tempo | #4 | offen |
-| #7 | Aufsetzer erkennen | #6 | offen |
-| #8 | Seite in der App zum Selberauswerten | #4 | offen |
+Alle sieben Tickets sind umgesetzt, jeweils von einem eigenen Subagenten, danach von Hand gegengeprüft.
+
+| Issue | Ticket | Commit |
+|---|---|---|
+| #2 | Gerüst: Video hinein, Overlay und Tabelle heraus | `e55c151` |
+| #3 | Hintergrund lernen und Ball-Kandidaten finden | `fff9ca1` |
+| #4 | Kandidaten zu Flugbahnen verketten, Würfe erkennen | `c30b541` |
+| #6 | Kalibrierung, Bogenhöhe und Tempo | `8969e45` |
+| #5 | Bewertungsskript gegen Handmarkierungen | `a3d034d` |
+| #7 | Aufsetzer erkennen | `28859e5` |
+| #8 | Seite in der App zum Selberauswerten | `d525279` |
+
+**Wichtig:** Bewiesen ist das alles bisher nur an einer **künstlichen** Aufnahme (`npm run testvideo`), die vier Würfe und einen Aufsetzer enthält. Mit echtem Material ist noch nichts geprüft.
+
+## Befehle der Wurfanalyse
+
+```bash
+npm run testvideo                                    # künstliche Aufnahme erzeugen
+npm run analyse -- <video> [--kalibrierung <datei>]  # Overlay-Video, CSV, JSON
+npm run bewerten -- handmarkierungen/<name>.json     # Messlatte gegen Handmarkierungen
+npm run test                                         # 84 Tests
+```
+
+Seite zum Selberauswerten: `/auswertung`. Läuft im Browser ohne Upload, braucht aber etwa das Fünffache der Videolänge — die schweren Durchläufe macht das Skript.
 
 ---
 
 ## Offene Punkte
 
+- **Der eigentliche Test steht aus:** Sobald das echte Material da ist, Würfe von Hand markieren, `npm run analyse` und `npm run bewerten` laufen lassen und die vier Zahlen der Messlatte ansehen. Erst dann ist klar, ob das Verfahren trägt. Alle Schwellen in `lib/flight/settings.ts` sind bis dahin **geraten** und am echten Material nachzuziehen — besonders die Aufsetzer-Schwellen.
+- **Bekannte Grenze:** Bei 30 Bildern pro Sekunde ist ein flacher Aufsetzer nicht sicher von einem flachen direkten Wurf zu unterscheiden. Im Zweifel entscheidet die Erkennung auf „direkt“, weil ein erfundener Aufsetzer der teurere Fehler ist.
 - **Testmaterial:** Aufnahme am 18.09. mittags. Etwa 100 Würfe, mindestens 20 Aufsetzer, **beide Ballfarben** (orange könnte vor der Holzwand zu wenig Kontrast haben), 10 Sekunden leerer Tisch am Anfang jedes Clips, dazu ein iPhone-Vergleichsclip in 1080p/60 und ein Foto der Kameraposition.
 - **Offene Frage, die das Material beantwortet:** Reicht die 720p-Webcam des MacBooks, oder muss ein zweites Gerät gekauft werden?
 - **Handmarkierungen** der Würfe entstehen nach der Aufnahme und sind Voraussetzung für Ticket #5.
