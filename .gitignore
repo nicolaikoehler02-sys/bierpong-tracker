@@ -22,6 +22,8 @@
 
 # Aufnahmen und Auswertungen (ADR 0002: Videos liegen nicht im Repo)
 /analyse/
+# Aufnahmen gehören nicht ins Repo (ADR 0002) — sie liegen lokal bzw. in Dropbox.
+/vids/
 /aufnahmen/
 
 # misc

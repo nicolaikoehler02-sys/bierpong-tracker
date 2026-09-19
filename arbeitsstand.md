@@ -68,6 +68,29 @@ Seite zum Selberauswerten: `/auswertung`. Läuft im Browser ohne Upload, braucht
 
 ---
 
+## Erster Lauf mit echtem Material (18.09.2026)
+
+Aufnahmen liegen **lokal** unter `D:\bierpongtracker\vids\` (nicht im Repo, nicht in Dropbox, ca. 2 GB inklusive der 45-Sekunden-Stücke unter `vids\stuecke\`): `Yellow.mov`, `white.mov`, `aufsetzer.mov`. Aufgenommen mit der MacBook-Webcam, 1280×720, Holzhütte, Biertisch **220 cm**, allein geworfen (Jakob möchte nicht gefilmt werden).
+
+**Ergebnis der Erkennung über alle 12 Minuten: 33 Würfe gefunden.**
+
+| Aufnahme | Länge | effektive Bildrate | gefundene Würfe |
+|---|---|---|---|
+| `Yellow.mov` | 6,5 Min | **16,9/s** | 16 |
+| `white.mov` | 4,2 Min | **20,5/s** | 11 |
+| `aufsetzer.mov` | 1,6 Min | **29,6/s** | 6 |
+
+**Befunde:**
+
+1. **QuickTime nimmt mit schwankender Bildrate auf.** Bei wenig Licht senkt die Webcam sie auf 17 statt 30 Bilder pro Sekunde. `ffprobe` meldet in `r_frame_rate` trotzdem 30 — die Wahrheit steht in `avg_frame_rate`. Das Skript rechnet mit dem gemeldeten Wert.
+2. **Alle gefundenen Würfe sind Bruchstücke:** Scheitelhöhe 0–1 px, Dauer stets 0,29 s, Weite 170–210 px. Erkannt wird nur das flache Ende der Bahn, nicht der Bogen.
+3. **Sehr viel Rauschen:** 3000–7000 Kandidaten je 45 Sekunden, überwiegend Hände und Arme.
+4. **Der Ball verlässt teilweise das Bild** — die Kamera zeigt zu viel Wand und Decke, zu wenig Flugraum.
+5. **Vermutete Ursachenkette:** wenig Licht → niedrige Bildrate und lange Belichtung → Ball als verschmierter Streifen → Bahn zerfällt → Prüfung „mindestens 5 Punkte" verwirft sie.
+6. **Das Auswertungsskript lädt alle Bilder in den Speicher.** Deshalb wurde in 45-Sekunden-Stücke zerlegt. Für längere Aufnahmen müsste es die Bilder einzeln durchreichen (`FlightRun` in `lib/flight/run.ts` kann das bereits, das Skript nutzt es noch nicht).
+
+**Offen und als Nächstes:** Es fehlen **Handmarkierungen** für mindestens ein 45-Sekunden-Stück, sonst bleibt „zu wenige erkannt" eine Schätzung statt einer Zahl. Alternativ genügt vorerst die grobe Angabe, wie viele Würfe tatsächlich geworfen wurden.
+
 ## Offene Punkte
 
 - **Der eigentliche Test steht aus:** Sobald das echte Material da ist, Würfe von Hand markieren, `npm run analyse` und `npm run bewerten` laufen lassen und die vier Zahlen der Messlatte ansehen. Erst dann ist klar, ob das Verfahren trägt. Alle Schwellen in `lib/flight/settings.ts` sind bis dahin **geraten** und am echten Material nachzuziehen — besonders die Aufsetzer-Schwellen.
